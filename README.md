@@ -28,10 +28,10 @@ Serious recovery and puzzle work dies in a mess of `.bat` files, forgotten flags
 
 | For beginners | For professionals |
 |---------------|-------------------|
-| Puzzle dropdown 1→160 fills the range for you | Exact flag control for every live mode |
+| Puzzle #1–160 entry + slider (exact bit ranges) | Exact flag control for every live mode |
 | Dry-run before you burn GPU hours | Embedded console with copy / paste / stop |
-| Plain-language mode advisor | Research Labs expose tomorrow’s algorithms today |
-| Browse buttons for every file type | Themes, presets, path packs, hybrid DL sketches |
+| Plain-language mode advisor | Research Labs + live recovery / BSGS implants |
+| Editable Settings (paths, threads, GPU) | Themes, presets, PathNova packs, HerdHandoff |
 
 This is not a toy skin. It is a **control surface** for tools the world is meant to take seriously.
 
@@ -60,7 +60,7 @@ Windows **CUDA AES** cracker for Bitcoin Core `wallet.dat` **mkey / ckey** blobs
 ## Quick start (Windows)
 
 ```bat
-cd %USERPROFILE%\Desktop\TrueNexus
+cd /d D:\TrueScent\TrueNexus
 pip install -r requirements.txt
 Launch_TrueNexus.bat
 ```

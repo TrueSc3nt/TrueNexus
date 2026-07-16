@@ -109,8 +109,12 @@ class ColliderConfig:
     mnemonic_strategy: str = "checksum-first"
     seed_mask: str = ""
     passphrase_file: str = ""
+    passphrase_mask: str = ""
+    passphrase_rules: str = ""
     model_file: str = ""
     path_pack: str = "btc-std"
+    include_change: bool = True
+    include_bip86: bool = True
     weakrng_sub: str = "milksad"
     address_sub: str = "default"
     rmd160_sub: str = "exact"
@@ -122,6 +126,8 @@ class ColliderConfig:
     residue_mr: str = ""
     collision_bits: str = "48"
     dual_target_file: str = ""
+    density_map_file: str = ""
+    funded_file: str = ""
     extra_args: str = ""
     research_notes: list[str] = field(default_factory=list)
 
@@ -154,14 +160,18 @@ class ColliderConfig:
                 rng = f"{self.range_start}:{self.range_end}"
             parts += ["-r", rng]
 
+        # -T only for weakrng or mnemonic milksad (never pollute other modes)
         if self.timestamp_window:
-            tw = self.timestamp_window.strip()
-            if ":" in tw:
-                parts += ["-T", tw]
-            else:
-                ts = tw.split()[0]
-                if ts.isdigit():
-                    parts += ["-T", ts]
+            msub = _live_token(self.mnemonic_submode)
+            wsub = _live_token(self.weakrng_sub)
+            if live_mode == "weakrng" or (live_mode == "mnemonic" and msub == "milksad") or wsub == "milksad" and live_mode == "weakrng":
+                tw = self.timestamp_window.strip()
+                if ":" in tw:
+                    parts += ["-T", tw]
+                else:
+                    ts = tw.split()[0]
+                    if ts.isdigit():
+                        parts += ["-T", ts]
 
         pattern = _live_token(self.search_pattern)
         if pattern == "density-map":
@@ -221,13 +231,28 @@ class ColliderConfig:
                 parts += ["--seed", f'"{self.seed_mask}"']
             if self.passphrase_file:
                 parts += ["--pass-file", f'"{self.passphrase_file}"']
+            if self.passphrase_mask:
+                parts += ["--pass-mask", f'"{self.passphrase_mask}"']
+            if self.passphrase_rules:
+                parts += ["--pass-rules", f'"{self.passphrase_rules}"']
             if self.model_file:
                 parts += ["--model", f'"{self.model_file}"']
             pack = _live_token(self.path_pack)
             if pack:
                 parts += ["--path-pack", pack]
+            if self.include_change:
+                parts.append("--change")
+            else:
+                parts.append("--no-change")
+            if self.include_bip86:
+                parts.append("--bip86")
+            else:
+                parts.append("--no-bip86")
             if self.dual_target_file:
                 parts += ["--dual-target", f'"{self.dual_target_file}"']
+            strat = _live_token(self.mnemonic_strategy)
+            if strat in ("checksum-prism", "prism"):
+                parts.append("--prism")
 
         if self.derivation_path and live_mode in ("address", "rmd160", "weakrng"):
             parts += ["-p", f'"{self.derivation_path}"']
@@ -274,11 +299,22 @@ class ColliderConfig:
                 parts.append(f"-N{self.balance_url.strip()}")
             else:
                 parts.append("-N")
-        if self.handoff_bits and live_mode not in ("bsgs", "hybrid-dl"):
+        if self.handoff_bits and live_mode in ("bsgs", "hybrid-dl", "kangaroo"):
             parts += ["-H", self.handoff_bits]
+
+        if self.density_map_file and pattern == "density-map":
+            parts += ["--density-map", f'"{self.density_map_file}"']
+        if self.funded_file:
+            parts += ["--funded", f'"{self.funded_file}"']
 
         if self.extra_args.strip():
             parts.append(self.extra_args.strip())
+
+        # Guardrails
+        if live_mode in ("address", "rmd160", "xpoint", "bsgs", "kangaroo", "shadow160") and not self.target_file:
+            warns.append("No target file (-f). Browse a .txt / .rmd / pubkey file before a real run.")
+        if live_mode in ("bsgs", "kangaroo", "hybrid-dl") and not (self.bits or self.range_start):
+            warns.append("BSGS/kangaroo need -b bits or -r START:END.")
 
         cmd = " ".join(parts)
         return cmd, warns

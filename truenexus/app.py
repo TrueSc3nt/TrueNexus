@@ -47,8 +47,9 @@ from truenexus.ideas_catalog import (
 from truenexus.builders import RECIPES as RECIPE_LABELS
 from truenexus.puzzles import (
     KNOWN_ADDR,
-    all_puzzle_labels,
     parse_puzzle_number,
+    puzzle_label,
+    puzzle_range_display,
     puzzle_range_hex,
     recommend_mode,
     write_puzzle_target_file,
@@ -63,10 +64,11 @@ TOOLS_DIR = ROOT / "tools"
 
 
 def _default_paths() -> dict:
-    """Prefer bundled tools/ next to TrueNexus; fall back to Desktop copies."""
+    """Prefer bundled tools/ next to TrueNexus; then D:\\TrueScent; then Desktop."""
     collider = TOOLS_DIR / "TrueCollider"
     mkey = TOOLS_DIR / "TrueMkeyCollider"
     desktop = Path.home() / "Desktop"
+    ds = Path("D:/TrueScent")
 
     def pick(*candidates: Path) -> str:
         for p in candidates:
@@ -76,19 +78,25 @@ def _default_paths() -> dict:
 
     tc_exe = pick(
         collider / "keyhunt.exe",
+        ds / "TrueCollider" / "keyhunt.exe",
         desktop / "updayingkeyunt" / "TrueCollider-master" / "keyhunt.exe",
     )
     tc_cuda = pick(
         collider / "keyhunt_cuda.exe",
+        ds / "TrueCollider" / "keyhunt_cuda.exe",
         desktop / "updayingkeyunt" / "TrueCollider-master" / "keyhunt_cuda.exe",
     )
     mk_exe = pick(
         mkey / "TrueMkeyCollider.exe",
+        ds / "TrueMkeyCollider" / "TrueMkeyCollider.exe",
         desktop / "TrueMkeyCollider" / "TrueMkeyCollider.exe",
     )
-    workdir = collider if collider.is_dir() else (
-        desktop / "updayingkeyunt" / "TrueCollider-master"
-    )
+    if collider.is_dir():
+        workdir = collider
+    elif (ds / "TrueCollider").is_dir():
+        workdir = ds / "TrueCollider"
+    else:
+        workdir = desktop / "updayingkeyunt" / "TrueCollider-master"
     return {
         "truecollider_exe": tc_exe,
         "truecollider_cuda": tc_cuda,
@@ -113,7 +121,10 @@ class TrueNexusApp(ctk.CTk):
         self._apply_theme(self.theme_name)
 
         self.runner = ProcessRunner(self._append_console, self._on_proc_done)
+        self._console_q: list[str] = []
+        self._status_q: list[str] = []
         self._build_ui()
+        self.after(50, self._ui_tick)
         self._append_console(
             f"TrueNexus v{__version__} online.\n"
             f"Telegram: {__telegram__}\n"
@@ -122,7 +133,8 @@ class TrueNexusApp(ctk.CTk):
             f"Bundled tools dir: {TOOLS_DIR}\n"
             f"  keyhunt: {self.settings.get('truecollider_exe')}\n"
             f"  mkey:    {self.settings.get('truemkey_exe')}\n"
-            "Tip: use Dry-Run before long GPU jobs. Run Sync_Tools.bat after rebuilding binaries.\n\n"
+            "Tip: use Dry-Run before long GPU jobs. Edit Settings anytime — Save persists paths.\n"
+            "Console Run executes shell commands in the workdir. Stop cancels the child process.\n\n"
         )
 
     # ── theme / settings ────────────────────────────────────────────────
@@ -297,17 +309,14 @@ class TrueNexusApp(ctk.CTk):
         self.advisor.insert("1.0", self._advisor_text())
         self.advisor.configure(state="disabled")
 
-        self._section(f, "Ideas completeness (all of README_IDEAS_FOR_IMPROVEMENT)")
-        report = ctk.CTkTextbox(f, height=160, font=ctk.CTkFont(family="Consolas", size=12))
-        report.pack(fill="x", pady=4)
-        report.insert("1.0", completeness_report())
-        report.configure(state="disabled")
+        self._section(f, "Roadmap snapshot")
         self._label(
             f,
-            "P0: " + " · ".join(ROADMAP_P0[:3]) + "…\n"
-            "P1: " + " · ".join(ROADMAP_P1[:3]) + "…\n"
-            "P2: " + " · ".join(ROADMAP_P2[:3]) + "…\n"
-            "P3: " + " · ".join(ROADMAP_P3[:3]) + "…",
+            "P0: " + " · ".join(ROADMAP_P0[:3]) + "...\n"
+            "P1: " + " · ".join(ROADMAP_P1[:3]) + "...\n"
+            "P2: " + " · ".join(ROADMAP_P2[:3]) + "...\n"
+            "P3: " + " · ".join(ROADMAP_P3[:3]) + "...\n"
+            "Full catalog lives in Ideas Matrix / Full Ideas Doc (loaded on demand).",
             text_color=self.theme["muted"],
             justify="left",
         ).pack(anchor="w", pady=6)
@@ -414,8 +423,23 @@ class TrueNexusApp(ctk.CTk):
         box.grid(row=r, column=c, sticky="ew", padx=6, pady=4)
         parent.grid_columnconfigure(c, weight=1)
         self._label(box, label, text_color=self.theme["muted"]).pack(anchor="w")
-        menu = ctk.CTkOptionMenu(box, values=values, width=220)
-        menu.set(default)
+        vals = list(values) if values else ["(none)"]
+        # Match default to a real value (prefix match) — prevents blank/broken OptionMenus
+        chosen = vals[0]
+        d = (default or "").strip()
+        if d in vals:
+            chosen = d
+        else:
+            token = d.split(" (")[0].strip().lower()
+            for v in vals:
+                if v.lower() == token or v.lower().startswith(token + " ") or v.lower().startswith(token + "("):
+                    chosen = v
+                    break
+                if token and token == v.split(" (")[0].strip().lower():
+                    chosen = v
+                    break
+        menu = ctk.CTkOptionMenu(box, values=vals, width=220)
+        menu.set(chosen)
         menu.pack(fill="x")
         return menu
 
@@ -473,11 +497,18 @@ class TrueNexusApp(ctk.CTk):
             mnemonic_eth=bool(self.mn_eth.get()) if hasattr(self, "mn_eth") else False,
             mnemonic_submode=self.mn_sub.get() if hasattr(self, "mn_sub") else "random",
             mnemonic_strategy=self.mn_strat.get() if hasattr(self, "mn_strat") else "checksum-first (research)",
-            seed_mask=self.mn_mask.get() if hasattr(self, "mn_mask") else "",
+            seed_mask=(
+                (self.mn_mask.get().strip() if hasattr(self, "mn_mask") and self.mn_mask.get().strip()
+                 else (self.mn_known.get().strip() if hasattr(self, "mn_known") else ""))
+            ),
             passphrase_file=self.mn_pass.get() if hasattr(self, "mn_pass") else "",
+            passphrase_mask=self.mn_passmask.get() if hasattr(self, "mn_passmask") else "",
+            passphrase_rules=self.mn_rules.get() if hasattr(self, "mn_rules") else "",
             model_file=self.mn_model.get() if hasattr(self, "mn_model") else "",
             dual_target_file=self.mn_dual.get() if hasattr(self, "mn_dual") else "",
-            path_pack=self.mn_pack.get() if hasattr(self, "mn_pack") else "paths-btc (research)",
+            path_pack=self.mn_pack.get() if hasattr(self, "mn_pack") else "btc-std",
+            include_change=bool(self.mn_change.get()) if hasattr(self, "mn_change") else True,
+            include_bip86=bool(self.mn_bip86.get()) if hasattr(self, "mn_bip86") else True,
             derivation_path=self.addr_path.get() if hasattr(self, "addr_path") else "",
             derivation_depth=(
                 self.mn_depth.get() if hasattr(self, "mn_depth") and self.tc_mode.get().startswith("mnemonic")
@@ -486,11 +517,13 @@ class TrueNexusApp(ctk.CTk):
             filter_strategy=self.addr_filter.get() if hasattr(self, "addr_filter") else "default fuse",
             address_sub=self.addr_sub.get() if hasattr(self, "addr_sub") else "default",
             rmd160_sub=self.rmd_sub.get() if hasattr(self, "rmd_sub") else "exact",
-            weakrng_sub=self.wr_sub.get() if hasattr(self, "wr_sub") else "milksad (research)",
+            weakrng_sub=self.wr_sub.get() if hasattr(self, "wr_sub") else "milksad",
             timestamp_window=self.wr_ts.get() if hasattr(self, "wr_ts") else "",
             residue_mr=self.bsgs_mod.get() if hasattr(self, "bsgs_mod") else "",
             collision_bits=self.shadow_bits.get() if hasattr(self, "shadow_bits") else "48",
             stride=self.addr_stride.get() if hasattr(self, "addr_stride") else "",
+            density_map_file=self.tc_density.get() if hasattr(self, "tc_density") else "",
+            funded_file=self.tc_funded.get() if hasattr(self, "tc_funded") else "",
         )
 
     def _preview_collider(self) -> None:
@@ -527,10 +560,23 @@ class TrueNexusApp(ctk.CTk):
     def _launch_collider(self) -> None:
         self._preview_collider()
         cmd = self.tc_preview.get("1.0", "end").strip().split("  REM")[0].strip()
-        cwd = self.tc_cwd.get().strip() or None
-        self.settings["truecollider_exe"] = self.tc_exe.get().strip()
-        self.settings["workdir"] = self.tc_cwd.get().strip()
-        self._set_status("Launching TrueCollider…")
+        if not cmd:
+            messagebox.showerror("Launch", "Command is empty. Preview first.")
+            return
+        exe = self.tc_exe.get().strip()
+        if not exe or not Path(exe).is_file():
+            messagebox.showerror(
+                "Launch",
+                f"TrueCollider exe not found:\n{exe}\n\nFix path in Settings and Save.",
+            )
+            return
+        cwd = self.tc_cwd.get().strip() or str(Path(exe).parent)
+        if not Path(cwd).is_dir():
+            messagebox.showerror("Launch", f"Working directory missing:\n{cwd}")
+            return
+        self.settings["truecollider_exe"] = exe
+        self.settings["workdir"] = cwd
+        self._set_status("Launching TrueCollider...")
         self.runner.start(cmd, cwd=cwd)
 
     # ── Puzzles ─────────────────────────────────────────────────────────
@@ -538,37 +584,87 @@ class TrueNexusApp(ctk.CTk):
         tab = self.tabs.tab("Puzzles")
         f = self._scroll(tab)
         f.pack(fill="both", expand=True)
-        self._section(f, "Bitcoin Puzzle Challenge 1–160")
+        self._section(f, "Bitcoin Puzzle Challenge 1-160")
         self._label(
             f,
-            "Select a puzzle. TrueNexus fills bit range automatically and recommends a mode.\n"
-            "For address mode you still need a target .txt (Browse or Auto-write known address).",
+            "Type a puzzle number 1..160 (or use the slider). Ranges are exact: "
+            "puzzle N = [2^(N-1) .. 2^N - 1].\n"
+            "All 160 official addresses are built-in. Auto-write creates the -f target file.",
             text_color=self.theme["muted"],
         ).pack(anchor="w")
 
-        self.puzzle_menu = ctk.CTkOptionMenu(f, values=all_puzzle_labels(), width=700, command=self._on_puzzle)
-        self.puzzle_menu.set(all_puzzle_labels()[65])  # #66
-        self.puzzle_menu.pack(anchor="w", pady=8)
-
-        self.puzzle_info = ctk.CTkTextbox(f, height=120)
-        self.puzzle_info.pack(fill="x", pady=4)
-        self._on_puzzle(self.puzzle_menu.get())
-
         row = ctk.CTkFrame(f, fg_color="transparent")
         row.pack(fill="x", pady=8)
-        ctk.CTkButton(row, text="Apply Range → TrueCollider", command=self._apply_puzzle).pack(side="left", padx=4)
-        ctk.CTkButton(row, text="Auto-write target .txt", command=self._write_puzzle_file).pack(side="left", padx=4)
-        ctk.CTkButton(row, text="Launch Puzzle Job", fg_color=self.theme["accent"], text_color="#111",
-                      command=self._launch_puzzle).pack(side="left", padx=4)
+        self._label(row, "Puzzle #", text_color=self.theme["muted"]).pack(side="left", padx=(0, 8))
+        self.puzzle_num = ctk.StringVar(value="66")
+        self.puzzle_entry = ctk.CTkEntry(row, textvariable=self.puzzle_num, width=80)
+        self.puzzle_entry.pack(side="left", padx=4)
+        self.puzzle_entry.bind("<Return>", lambda _e: self._refresh_puzzle())
+        self.puzzle_entry.bind("<FocusOut>", lambda _e: self._refresh_puzzle())
+        ctk.CTkButton(row, text="Go", width=60, command=self._refresh_puzzle).pack(side="left", padx=4)
+        ctk.CTkButton(row, text="-1", width=40, command=lambda: self._nudge_puzzle(-1)).pack(side="left", padx=2)
+        ctk.CTkButton(row, text="+1", width=40, command=lambda: self._nudge_puzzle(1)).pack(side="left", padx=2)
 
-    def _on_puzzle(self, label: str) -> None:
-        n = parse_puzzle_number(label)
+        self.puzzle_slider = ctk.CTkSlider(
+            f, from_=1, to=160, number_of_steps=159, command=self._on_puzzle_slider
+        )
+        self.puzzle_slider.set(66)
+        self.puzzle_slider.pack(fill="x", pady=6)
+
+        self.puzzle_info = ctk.CTkTextbox(f, height=140, font=ctk.CTkFont(family="Consolas", size=13))
+        self.puzzle_info.pack(fill="x", pady=4)
+        self._refresh_puzzle()
+
+        brow = ctk.CTkFrame(f, fg_color="transparent")
+        brow.pack(fill="x", pady=8)
+        ctk.CTkButton(brow, text="Apply Range -> TrueCollider", command=self._apply_puzzle).pack(side="left", padx=4)
+        ctk.CTkButton(brow, text="Write target .txt", command=self._write_puzzle_file).pack(side="left", padx=4)
+        ctk.CTkButton(
+            brow, text="Launch Puzzle Job", fg_color=self.theme["accent"], text_color="#111",
+            command=self._launch_puzzle,
+        ).pack(side="left", padx=4)
+        self.puzzle_dry = ctk.CTkCheckBox(brow, text="Dry-run first (-y)")
+        self.puzzle_dry.select()
+        self.puzzle_dry.pack(side="left", padx=12)
+
+    def _current_puzzle(self) -> int:
+        try:
+            n = parse_puzzle_number(self.puzzle_num.get())
+        except Exception:
+            n = 66
+            self.puzzle_num.set("66")
+        if n < 1:
+            n = 1
+        if n > 160:
+            n = 160
+        self.puzzle_num.set(str(n))
+        return n
+
+    def _nudge_puzzle(self, delta: int) -> None:
+        n = self._current_puzzle() + delta
+        n = max(1, min(160, n))
+        self.puzzle_num.set(str(n))
+        self.puzzle_slider.set(n)
+        self._refresh_puzzle()
+
+    def _on_puzzle_slider(self, value: float) -> None:
+        n = int(round(float(value)))
+        self.puzzle_num.set(str(n))
+        self._refresh_puzzle()
+
+    def _refresh_puzzle(self) -> None:
+        n = self._current_puzzle()
+        try:
+            self.puzzle_slider.set(n)
+        except Exception:
+            pass
         start, end = puzzle_range_hex(n)
-        addr = KNOWN_ADDR.get(n, "(no built-in address — supply your own target file)")
+        addr = KNOWN_ADDR.get(n, "(missing address)")
         txt = (
-            f"Puzzle #{n}\n"
+            f"{puzzle_label(n)}\n"
             f"Bits: {n}\n"
-            f"Range: 0x{start} : 0x{end}\n"
+            f"Range: {puzzle_range_display(n)}\n"
+            f"CLI:  -b {n}   or   -r {start}:{end}\n"
             f"Address: {addr}\n"
             f"Recommended: {recommend_mode(n)}\n"
         )
@@ -576,42 +672,53 @@ class TrueNexusApp(ctk.CTk):
         self.puzzle_info.insert("1.0", txt)
 
     def _apply_puzzle(self) -> None:
-        n = parse_puzzle_number(self.puzzle_menu.get())
+        n = self._current_puzzle()
         start, end = puzzle_range_hex(n)
         self.tc_bits.set(str(n))
         self.tc_r0.set(start)
         self.tc_r1.set(end)
-        self.tc_mode.set("address" if n <= 90 else "bsgs")
-        self.tc_pattern.set("chaos" if n <= 80 else "random")
+        # Prefer address grind; bsgs/kangaroo need a pubkey file
+        try:
+            self.tc_mode.set("address")
+        except Exception:
+            pass
+        try:
+            self.tc_pattern.set("chaos" if n <= 80 else "random")
+        except Exception:
+            pass
         self.tabs.set("TrueCollider")
-        self._set_status(f"Applied puzzle #{n} range to TrueCollider tab")
+        self._set_status(f"Applied puzzle #{n} range ({puzzle_range_display(n)})")
 
     def _write_puzzle_file(self) -> None:
-        n = parse_puzzle_number(self.puzzle_menu.get())
+        n = self._current_puzzle()
         if n not in KNOWN_ADDR:
-            messagebox.showwarning("No address", "This puzzle has no built-in address. Browse a target file manually.")
+            messagebox.showwarning("No address", "Puzzle address missing from catalog.")
             return
-        path = filedialog.asksaveasfilename(
-            defaultextension=".txt", initialfile=f"puzzle_{n}.txt",
-            filetypes=[("Text", "*.txt")],
-        )
-        if not path:
-            return
+        # Default into workdir / presets without forcing a save dialog every time
+        out_dir = Path(self.tc_cwd.get().strip() or ROOT / "presets")
+        out_dir.mkdir(parents=True, exist_ok=True)
+        path = str(out_dir / f"puzzle_{n}.txt")
         write_puzzle_target_file(n, path)
         self.tc_target.set(path)
         self._append_console(f"[TrueNexus] Wrote puzzle target: {path}\n")
+        self._set_status(f"Wrote {path}")
+        return path
 
     def _launch_puzzle(self) -> None:
         self._apply_puzzle()
         if not self.tc_target.get().strip():
             self._write_puzzle_file()
-        self.tc_dry.deselect()
+        if hasattr(self, "puzzle_dry") and self.puzzle_dry.get():
+            self.tc_dry.select()
+        else:
+            self.tc_dry.deselect()
         self._launch_collider()
 
     def _quick_puzzle66(self) -> None:
         self.tabs.set("Puzzles")
-        self.puzzle_menu.set(all_puzzle_labels()[65])
-        self._on_puzzle(self.puzzle_menu.get())
+        self.puzzle_num.set("66")
+        self.puzzle_slider.set(66)
+        self._refresh_puzzle()
         self._apply_puzzle()
 
     # ── Mnemonic Lab ────────────────────────────────────────────────────
@@ -630,7 +737,7 @@ class TrueNexusApp(ctk.CTk):
         g = ctk.CTkFrame(f, fg_color="transparent")
         g.pack(fill="x", pady=6)
         self.mn_sub = self._dropdown(g, "Submode (recovery/pass/ecosystem/paths)", MNEMONIC_SUBMODES, "random", 0, 0)
-        self.mn_strat = self._dropdown(g, "Strategy (checksum-first, lattice, …)", MNEMONIC_STRATEGIES, "checksum-first (research)", 0, 1)
+        self.mn_strat = self._dropdown(g, "Strategy (checksum-first, lattice, …)", MNEMONIC_STRATEGIES, "checksum-first", 0, 1)
         self.mn_words_menu = self._dropdown(g, "Words (-w)", ["0", "12", "15", "18", "21", "24"], "12", 1, 0)
         self.mn_words = ctk.StringVar(value="12")
         self.mn_words_menu.configure(command=lambda v: self.mn_words.set(v))
@@ -638,7 +745,7 @@ class TrueNexusApp(ctk.CTk):
         self.mn_lang = ctk.StringVar(value="english")
         self.mn_lang_menu.configure(command=lambda v: self.mn_lang.set(v))
         self.mn_depth = self._entry(g, "Index depth (-D)", "5", 2, 0)
-        self.mn_pack = self._dropdown(g, "PathNova pack", PATH_PACKS, "paths-btc (research)", 2, 1)
+        self.mn_pack = self._dropdown(g, "PathNova pack", PATH_PACKS, "btc-std", 2, 1)
 
         self.mn_mask = ctk.StringVar()
         self._label(f, "Seed mask / known words (use ? or x for unknown)", text_color=self.theme["muted"]).pack(anchor="w", pady=(8, 2))
@@ -661,8 +768,10 @@ class TrueNexusApp(ctk.CTk):
         self._path_row(f, "Model constraints file (JSON/TXT)", self.mn_model)
         self._path_row(f, "DualTarget second address file", self.mn_dual)
         self.mn_change = ctk.CTkCheckBox(f, text="Include change chain /1/N (PathNova)")
+        self.mn_change.select()
         self.mn_change.pack(anchor="w", pady=4)
         self.mn_bip86 = ctk.CTkCheckBox(f, text="Include BIP-86 Taproot paths")
+        self.mn_bip86.select()
         self.mn_bip86.pack(anchor="w", pady=4)
 
         self.mn_eth = ctk.CTkCheckBox(f, text="ETH keccak checks (-W)  [live paths still coin-type 0' until PathNova lands]")
@@ -756,7 +865,7 @@ class TrueNexusApp(ctk.CTk):
         g.pack(fill="x")
         self.addr_mode = self._dropdown(
             g, "Base mode",
-            ["address", "rmd160", "xpoint", "pubkey2addr", "shadow160 (research)"],
+            ["address", "rmd160", "xpoint", "pubkey2addr", "shadow160"],
             "address", 0, 0,
         )
         self.addr_sub = self._dropdown(g, "Address submode", ADDRESS_SUBMODES, "default", 0, 1)
@@ -800,7 +909,7 @@ class TrueNexusApp(ctk.CTk):
         ).pack(anchor="w")
         g = ctk.CTkFrame(f, fg_color="transparent")
         g.pack(fill="x", pady=6)
-        self.wr_sub = self._dropdown(g, "WeakRNG submode", WEAKRNG_SUBMODES, "milksad (research)", 0, 0)
+        self.wr_sub = self._dropdown(g, "WeakRNG submode", WEAKRNG_SUBMODES, "milksad", 0, 0)
         self.wr_ts = self._entry(g, "Timestamp / window (-T or start:end)", "", 0, 1)
         for name, desc in [
             ("milksad", "Libbitcoin Explorer MT19937 — CVE-2023-39910 (~2^32 + time)"),
@@ -816,7 +925,16 @@ class TrueNexusApp(ctk.CTk):
         ctk.CTkButton(row, text="Also set mnemonic milksad", command=self._apply_mn_milksad).pack(side="left", padx=4)
 
     def _apply_weakrng(self) -> None:
-        self.tc_mode.set("weakrng (research)")
+        # Pick exact dropdown value (live or annotated)
+        chosen = "weakrng"
+        for v in MODES_ALL:
+            if v.split(" (")[0].strip().lower() == "weakrng":
+                chosen = v
+                break
+        try:
+            self.tc_mode.set(chosen)
+        except Exception:
+            pass
         self.tabs.set("TrueCollider")
         self._set_status(f"WeakRNG {self.wr_sub.get()} applied")
 
@@ -908,10 +1026,11 @@ class TrueNexusApp(ctk.CTk):
         f = self._scroll(tab)
         f.pack(fill="both", expand=True)
         self._section(f, "EVERY idea from README_IDEAS_FOR_IMPROVEMENT")
-        rep = ctk.CTkTextbox(f, height=100, font=ctk.CTkFont(family="Consolas", size=12))
-        rep.pack(fill="x", pady=4)
-        rep.insert("1.0", completeness_report())
-        rep.configure(state="disabled")
+        self._label(
+            f,
+            "Catalog is large — click Load to populate (keeps the app snappy).",
+            text_color=self.theme["muted"],
+        ).pack(anchor="w")
 
         filter_row = ctk.CTkFrame(f, fg_color="transparent")
         filter_row.pack(fill="x", pady=4)
@@ -921,13 +1040,19 @@ class TrueNexusApp(ctk.CTk):
             command=lambda _v: self._rebuild_idea_cards(self._ideas_host),
             width=180,
         )
-        self.ideas_filter.set("ALL")
-        self.ideas_filter.pack(side="left")
+        self.ideas_filter.set("live only")
+        self.ideas_filter.pack(side="left", padx=(0, 8))
+        ctk.CTkButton(
+            filter_row, text="Load catalog", fg_color=self.theme["accent"], text_color="#111",
+            command=lambda: self._rebuild_idea_cards(self._ideas_host),
+        ).pack(side="left")
 
         ideas_host = ctk.CTkFrame(f, fg_color="transparent")
         ideas_host.pack(fill="both", expand=True)
         self._ideas_host = ideas_host
-        self._rebuild_idea_cards(ideas_host)
+        ctk.CTkLabel(
+            ideas_host, text="(not loaded yet)", text_color=self.theme["muted"]
+        ).pack(anchor="w", pady=8)
 
         self._section(f, "Flag encyclopedia")
         for fl in ["-m", "-f", "-b", "-r", "-x", "-B", "-k", "-e", "-U", "-M", "-w", "-L", "-T", "-N", "--partial", "--selftest"]:
@@ -1062,47 +1187,103 @@ class TrueNexusApp(ctk.CTk):
         tab = self.tabs.tab("Full Ideas Doc")
         f = self._scroll(tab)
         f.pack(fill="both", expand=True)
-        self._section(f, "Complete README_IDEAS_FOR_IMPROVEMENT (nothing omitted)")
-        box = ctk.CTkTextbox(f, height=620, font=ctk.CTkFont(family="Consolas", size=12))
-        box.pack(fill="both", expand=True, pady=6)
-        ideas_path = ROOT / "docs" / "README_IDEAS_FOR_IMPROVEMENT.md"
-        if ideas_path.exists():
-            box.insert("1.0", ideas_path.read_text(encoding="utf-8"))
-        else:
-            box.insert("1.0", completeness_report() + "\n\n(Full markdown missing from docs/)")
+        self._section(f, "Complete README_IDEAS_FOR_IMPROVEMENT")
+        self._ideas_box = ctk.CTkTextbox(f, height=620, font=ctk.CTkFont(family="Consolas", size=12))
+        self._ideas_box.pack(fill="both", expand=True, pady=6)
+        self._ideas_box.insert("1.0", "Click Load to open the full ideas document (keeps startup fast).\n")
         row = ctk.CTkFrame(f, fg_color="transparent")
         row.pack(fill="x")
-        ctk.CTkButton(row, text="Copy entire ideas doc", command=lambda: self._copy_text(box.get("1.0", "end"))).pack(side="left", padx=4)
+        ctk.CTkButton(row, text="Load ideas doc", fg_color=self.theme["accent"], text_color="#111",
+                      command=self._load_ideas_doc).pack(side="left", padx=4)
+        ctk.CTkButton(row, text="Copy", command=lambda: self._copy_text(self._ideas_box.get("1.0", "end"))).pack(side="left", padx=4)
         ctk.CTkButton(row, text="Open docs folder", command=lambda: os.startfile(str(ROOT / "docs"))).pack(side="left", padx=4)
 
+    def _load_ideas_doc(self) -> None:
+        ideas_path = ROOT / "docs" / "README_IDEAS_FOR_IMPROVEMENT.md"
+        self._ideas_box.delete("1.0", "end")
+        if ideas_path.exists():
+            self._ideas_box.insert("1.0", ideas_path.read_text(encoding="utf-8"))
+        else:
+            self._ideas_box.insert("1.0", completeness_report() + "\n\n(Full markdown missing from docs/)")
 
     # ── Settings ────────────────────────────────────────────────────────
     def _build_settings(self) -> None:
         tab = self.tabs.tab("Settings")
         f = self._scroll(tab)
         f.pack(fill="both", expand=True)
-        self._section(f, "Paths & preferences")
+        self._section(f, "Paths & preferences (editable)")
+        self._label(
+            f,
+            "Edit any path below, then Save. Values sync to TrueCollider / TrueMkey tabs and user_settings.json.",
+            text_color=self.theme["muted"],
+        ).pack(anchor="w")
         self.set_tc = ctk.StringVar(value=self.settings.get("truecollider_exe", ""))
         self.set_tcc = ctk.StringVar(value=self.settings.get("truecollider_cuda", ""))
         self.set_mk = ctk.StringVar(value=self.settings.get("truemkey_exe", ""))
         self.set_wd = ctk.StringVar(value=self.settings.get("workdir", ""))
+        self.set_threads = ctk.StringVar(value=str(self.settings.get("default_threads", "8")))
+        self.set_gpu = ctk.StringVar(value=str(self.settings.get("default_gpu", "none")))
         self._path_row(f, "TrueCollider CPU exe", self.set_tc, exe=True)
         self._path_row(f, "TrueCollider CUDA exe", self.set_tcc, exe=True)
         self._path_row(f, "TrueMkeyCollider exe", self.set_mk, exe=True)
         self._path_row(f, "Default workdir", self.set_wd, directory=True)
-        ctk.CTkButton(f, text="Save Settings", fg_color=self.theme["accent"], text_color="#111",
-                      command=self._persist_settings).pack(anchor="w", pady=12)
-        ctk.CTkButton(f, text="Open logs folder", command=lambda: os.startfile(str(LOG_DIR))).pack(anchor="w")
+
+        g = ctk.CTkFrame(f, fg_color="transparent")
+        g.pack(fill="x", pady=8)
+        self._label(g, "Default threads (-t)", text_color=self.theme["muted"]).grid(row=0, column=0, sticky="w", padx=6)
+        ctk.CTkEntry(g, textvariable=self.set_threads, width=100).grid(row=1, column=0, sticky="w", padx=6)
+        self._label(g, "Default GPU (-U)", text_color=self.theme["muted"]).grid(row=0, column=1, sticky="w", padx=6)
+        ctk.CTkOptionMenu(g, variable=self.set_gpu, values=GPU, width=120).grid(row=1, column=1, sticky="w", padx=6)
+
+        brow = ctk.CTkFrame(f, fg_color="transparent")
+        brow.pack(fill="x", pady=12)
+        ctk.CTkButton(brow, text="Save Settings", fg_color=self.theme["accent"], text_color="#111",
+                      command=self._persist_settings).pack(side="left", padx=4)
+        ctk.CTkButton(brow, text="Reload from disk", command=self._reload_settings_ui).pack(side="left", padx=4)
+        ctk.CTkButton(brow, text="Reset to auto-detect", command=self._reset_settings).pack(side="left", padx=4)
+        ctk.CTkButton(brow, text="Open logs folder", command=lambda: os.startfile(str(LOG_DIR))).pack(side="left", padx=4)
+        ctk.CTkButton(brow, text="Open settings JSON", command=lambda: os.startfile(str(CONFIG_PATH))).pack(side="left", padx=4)
+
+    def _reload_settings_ui(self) -> None:
+        self._load_settings()
+        self.set_tc.set(self.settings.get("truecollider_exe", ""))
+        self.set_tcc.set(self.settings.get("truecollider_cuda", ""))
+        self.set_mk.set(self.settings.get("truemkey_exe", ""))
+        self.set_wd.set(self.settings.get("workdir", ""))
+        self.set_threads.set(str(self.settings.get("default_threads", "8")))
+        self.set_gpu.set(str(self.settings.get("default_gpu", "none")))
+        self._set_status("Settings reloaded from disk")
+
+    def _reset_settings(self) -> None:
+        self.settings.update(_default_paths())
+        self._reload_settings_ui()
+        self._persist_settings()
 
     def _persist_settings(self) -> None:
         self.settings["truecollider_exe"] = self.set_tc.get().strip()
         self.settings["truecollider_cuda"] = self.set_tcc.get().strip()
         self.settings["truemkey_exe"] = self.set_mk.get().strip()
         self.settings["workdir"] = self.set_wd.get().strip()
-        self.tc_exe.set(self.settings["truecollider_exe"])
-        self.tc_cwd.set(self.settings["workdir"])
-        self.mk_exe.set(self.settings["truemkey_exe"])
-        self._save_settings()
+        self.settings["default_threads"] = self.set_threads.get().strip() or "8"
+        self.settings["default_gpu"] = self.set_gpu.get().strip() or "none"
+        self.settings["theme"] = self.theme_name
+        # Sync live widgets
+        if hasattr(self, "tc_exe"):
+            self.tc_exe.set(self.settings["truecollider_exe"])
+        if hasattr(self, "tc_cwd"):
+            self.tc_cwd.set(self.settings["workdir"])
+        if hasattr(self, "mk_exe"):
+            self.mk_exe.set(self.settings["truemkey_exe"])
+        if hasattr(self, "tc_threads"):
+            self.tc_threads.set(self.settings["default_threads"])
+        if hasattr(self, "tc_gpu"):
+            try:
+                self.tc_gpu.set(self.settings["default_gpu"])
+            except Exception:
+                pass
+        CONFIG_PATH.write_text(json.dumps(self.settings, indent=2), encoding="utf-8")
+        self._set_status(f"Settings saved → {CONFIG_PATH}")
+        messagebox.showinfo("Saved", f"Settings written to\n{CONFIG_PATH}")
 
     # ── About ───────────────────────────────────────────────────────────
     def _build_about(self) -> None:
@@ -1132,16 +1313,44 @@ class TrueNexusApp(ctk.CTk):
                       fg_color=self.theme["accent"], text_color="#111").pack(side="left", padx=4)
 
     # ── console helpers ─────────────────────────────────────────────────
+    def _ui_tick(self) -> None:
+        """Main-thread pump for console/status queues (thread-safe)."""
+        try:
+            self._flush_console()
+            if self._status_q:
+                msg = self._status_q[-1]
+                self._status_q.clear()
+                self._set_status(msg)
+        finally:
+            try:
+                self.after(50, self._ui_tick)
+            except Exception:
+                pass
+
     def _append_console(self, text: str) -> None:
-        def _do() -> None:
-            self.console.insert("end", text)
+        # Worker threads only enqueue — main thread flushes via _ui_tick
+        self._console_q.append(text)
+
+    def _flush_console(self) -> None:
+        if not self._console_q:
+            return
+        chunk = "".join(self._console_q)
+        self._console_q.clear()
+        try:
+            self.console.insert("end", chunk)
             self.console.see("end")
-        self.after(0, _do)
+            content = self.console.get("1.0", "end")
+            if len(content) > 500_000:
+                self.console.delete("1.0", "end-400000c")
+        except Exception:
+            pass
 
     def _clear_console(self) -> None:
+        self._console_q.clear()
         self.console.delete("1.0", "end")
 
     def _copy_console(self) -> None:
+        self._flush_console()
         self._copy_text(self.console.get("1.0", "end"))
 
     def _copy_text(self, text: str) -> None:
@@ -1163,25 +1372,38 @@ class TrueNexusApp(ctk.CTk):
     def _run_raw_cmd(self) -> None:
         cmd = self.cmd_entry.get().strip()
         if not cmd:
+            self._append_console("[TrueNexus] Type a command first, then press Run / Enter.\n")
             return
-        cwd = self.tc_cwd.get().strip() or str(ROOT)
+        cwd = ""
+        if hasattr(self, "tc_cwd"):
+            cwd = self.tc_cwd.get().strip()
+        if not cwd:
+            cwd = self.settings.get("workdir", "") or str(ROOT)
+        if not Path(cwd).is_dir():
+            self._append_console(f"[TrueNexus] Invalid workdir: {cwd}\n")
+            messagebox.showerror("Run", f"Working directory does not exist:\n{cwd}\n\nFix it in Settings.")
+            return
         self.cmd_entry.delete(0, "end")
+        self._set_status(f"Running: {cmd[:80]}")
         self.runner.start(cmd, cwd=cwd)
 
     def _on_proc_done(self, code: int) -> None:
-        self.after(0, lambda: self._set_status(f"Process finished ({code})"))
+        self._status_q.append(f"Process finished ({code})")
 
     def _set_status(self, text: str) -> None:
-        self.status.configure(text=text)
+        try:
+            self.status.configure(text=text)
+        except Exception:
+            pass
 
     def _on_theme(self, name: str) -> None:
         self.settings["theme"] = name
+        self.theme_name = name
+        CONFIG_PATH.write_text(json.dumps(self.settings, indent=2), encoding="utf-8")
         messagebox.showinfo(
             "Theme",
-            f"Theme '{name}' saved. Restart TrueNexus to fully re-skin all panels.\n"
-            "(Console colors update on next launch.)",
+            f"Theme '{name}' saved. Restart TrueNexus to fully re-skin all panels.",
         )
-        self._save_settings()
 
 
 def main() -> None:

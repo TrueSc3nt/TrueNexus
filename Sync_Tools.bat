@@ -1,10 +1,10 @@
 @echo off
-REM Refresh bundled binaries from your Desktop build folders (slim copy — no CUDA toolkit).
+REM Refresh bundled binaries from your Desktop build folders (slim copy ??? no CUDA toolkit).
 title Sync TrueNexus tools
 cd /d "%~dp0"
 
-set "SRC_TC=%USERPROFILE%\Desktop\updayingkeyunt\TrueCollider-master"
-set "SRC_MK=%USERPROFILE%\Desktop\TrueMkeyCollider"
+set "SRC_TC=D:\TrueScent\TrueCollider"
+set "SRC_MK=D:\TrueScent\TrueMkeyCollider"
 set "DST_TC=%~dp0tools\TrueCollider"
 set "DST_MK=%~dp0tools\TrueMkeyCollider"
 
@@ -46,3 +46,4 @@ echo Done. Bundled under:
 echo   %DST_TC%
 echo   %DST_MK%
 pause
+
