@@ -34,13 +34,17 @@ from truenexus.builders import (
     explain_flag,
 )
 from truenexus.ideas_catalog import (
+    ANTI_IDEAS,
+    RECIPES as RECIPE_ITEMS,
     ROADMAP_P0,
     ROADMAP_P1,
     ROADMAP_P2,
     ROADMAP_P3,
+    SOURCES,
     all_idea_cards,
     completeness_report,
 )
+from truenexus.builders import RECIPES as RECIPE_LABELS
 from truenexus.puzzles import (
     KNOWN_ADDR,
     all_puzzle_labels,
@@ -160,7 +164,7 @@ class TrueNexusApp(ctk.CTk):
         for name in (
             "Home", "TrueCollider", "Puzzles", "Mnemonic Lab", "BSGS Lab",
             "Address / RMD160", "WeakRNG Lab", "TrueMkey", "Ideas Matrix",
-            "Settings", "About",
+            "Roadmap", "Recipes", "Full Ideas Doc", "Settings", "About",
         ):
             self.tabs.add(name)
 
@@ -173,6 +177,9 @@ class TrueNexusApp(ctk.CTk):
         self._build_weakrng()
         self._build_mkey()
         self._build_ideas()
+        self._build_roadmap()
+        self._build_recipes()
+        self._build_ideas_doc()
         self._build_settings()
         self._build_about()
 
@@ -333,6 +340,21 @@ class TrueNexusApp(ctk.CTk):
         self.tc_dry.pack(side="left", padx=6)
         self.tc_save = ctk.CTkCheckBox(flags, text="Save bloom/fuse (-S)")
         self.tc_save.pack(side="left", padx=6)
+        self.tc_balance = ctk.CTkCheckBox(flags, text="Balance check (-N)")
+        self.tc_balance.pack(side="left", padx=6)
+
+        more = ctk.CTkFrame(f, fg_color="transparent")
+        more.pack(fill="x", pady=4)
+        self.tc_handoff = self._entry(more, "HerdHandoff -H bits", "44", 0, 0)
+        self.tc_balance_url = self._entry(more, "-N URL optional", "", 0, 1)
+        self.tc_density = ctk.StringVar()
+        self._path_row(f, "Density-map prior file (research)", self.tc_density)
+        self.tc_funded = ctk.StringVar()
+        self._path_row(f, "Funded-only UTXO/hash160 snapshot (research)", self.tc_funded)
+        self.tc_wifmask = self._entry(
+            ctk.CTkFrame(f, fg_color="transparent"), "WIF/hex mask pattern", "", 0, 0
+        )
+
 
         self.tc_preview = ctk.CTkTextbox(f, height=90, font=ctk.CTkFont(family="Consolas", size=13))
         self.tc_preview.pack(fill="x", pady=8)
@@ -399,6 +421,11 @@ class TrueNexusApp(ctk.CTk):
             quiet=bool(self.tc_quiet.get()),
             stats=self.tc_stats.get().strip() or "10",
             dry_run=bool(self.tc_dry.get()),
+            balance_check=bool(self.tc_balance.get()) if hasattr(self, "tc_balance") else False,
+            balance_url=self.tc_balance_url.get().strip() if hasattr(self, "tc_balance_url") else "",
+            handoff_bits=(
+                self.tc_handoff.get().strip() if hasattr(self, "tc_handoff") else ""
+            ) or (self.bsgs_h.get().strip() if hasattr(self, "bsgs_h") else ""),
             vanity=self.tc_vanity.get().strip(),
             vector=self.tc_vector.get(),
             save_bloom=bool(self.tc_save.get()),
@@ -584,15 +611,29 @@ class TrueNexusApp(ctk.CTk):
         self.mn_pack = self._dropdown(g, "PathNova pack", PATH_PACKS, "paths-btc (research)", 2, 1)
 
         self.mn_mask = ctk.StringVar()
-        self._label(f, "Seed mask / known words (use ? for unknown)", text_color=self.theme["muted"]).pack(anchor="w", pady=(8, 2))
+        self._label(f, "Seed mask / known words (use ? or x for unknown)", text_color=self.theme["muted"]).pack(anchor="w", pady=(8, 2))
         ctk.CTkEntry(f, textvariable=self.mn_mask, placeholder_text="abandon ? ? zoo ... about").pack(fill="x")
 
+        self.mn_known = ctk.StringVar()
+        self._label(f, "Known full mnemonic (for pass-* / lastword modes)", text_color=self.theme["muted"]).pack(anchor="w", pady=(8, 2))
+        ctk.CTkEntry(f, textvariable=self.mn_known, placeholder_text="twelve or twenty-four known words ...").pack(fill="x")
+
+        self.mn_passmask = ctk.StringVar()
+        self._label(f, "Passphrase hashcat mask (pass-mask) e.g. ?l?l?d?d", text_color=self.theme["muted"]).pack(anchor="w", pady=(8, 2))
+        ctk.CTkEntry(f, textvariable=self.mn_passmask, placeholder_text="?l?l?l?d?d").pack(fill="x")
+
         self.mn_pass = ctk.StringVar()
+        self.mn_rules = ctk.StringVar()
         self.mn_model = ctk.StringVar()
         self.mn_dual = ctk.StringVar()
-        self._path_row(f, "Passphrase dictionary / rules (25th word)", self.mn_pass)
+        self._path_row(f, "Passphrase dictionary (pass-dict / pass-hybrid)", self.mn_pass)
+        self._path_row(f, "Passphrase rules file (pass-rules / best64)", self.mn_rules)
         self._path_row(f, "Model constraints file (JSON/TXT)", self.mn_model)
         self._path_row(f, "DualTarget second address file", self.mn_dual)
+        self.mn_change = ctk.CTkCheckBox(f, text="Include change chain /1/N (PathNova)")
+        self.mn_change.pack(anchor="w", pady=4)
+        self.mn_bip86 = ctk.CTkCheckBox(f, text="Include BIP-86 Taproot paths")
+        self.mn_bip86.pack(anchor="w", pady=4)
 
         self.mn_eth = ctk.CTkCheckBox(f, text="ETH keccak checks (-W)  [live paths still coin-type 0' until PathNova lands]")
         self.mn_eth.pack(anchor="w", pady=8)
@@ -644,6 +685,12 @@ class TrueNexusApp(ctk.CTk):
         self.bsgs_k = self._entry(g, "K factor (-k)", "auto", 0, 1)
         self.bsgs_n = self._entry(g, "Table N (-n)", "0x100000000000", 1, 0)
         self.bsgs_mod = self._entry(g, "Residue M:R (Gaudry/ResidueHerd)", "", 1, 1)
+        self.bsgs_r2 = self._entry(g, "Dual-range second START:END", "", 2, 0)
+        self.bsgs_h = self._entry(g, "Handoff pocket bits -H", "44", 2, 1)
+        self.bsgs_freeze = ctk.CTkCheckBox(g, text="freeze-table (research)")
+        self.bsgs_freeze.grid(row=3, column=0, sticky="w", padx=6, pady=4)
+        self.bsgs_batch = ctk.CTkCheckBox(g, text="batched-gpu-giants (research)")
+        self.bsgs_batch.grid(row=3, column=1, sticky="w", padx=6, pady=4)
 
         tips = (
             "Live: sequential · backward · both · random · dance\n"
@@ -840,9 +887,9 @@ class TrueNexusApp(ctk.CTk):
         filter_row.pack(fill="x", pady=4)
         self.ideas_filter = ctk.CTkOptionMenu(
             filter_row,
-            values=["ALL", "live only", "research only"],
+            values=["ALL", "live only", "research only", "notes only"],
             command=lambda _v: self._rebuild_idea_cards(self._ideas_host),
-            width=160,
+            width=180,
         )
         self.ideas_filter.set("ALL")
         self.ideas_filter.pack(side="left")
@@ -853,7 +900,7 @@ class TrueNexusApp(ctk.CTk):
         self._rebuild_idea_cards(ideas_host)
 
         self._section(f, "Flag encyclopedia")
-        for fl in ["-m", "-f", "-b", "-r", "-x", "-B", "-k", "-e", "-U", "-M", "-w", "-L", "-T", "--partial", "--selftest"]:
+        for fl in ["-m", "-f", "-b", "-r", "-x", "-B", "-k", "-e", "-U", "-M", "-w", "-L", "-T", "-N", "--partial", "--selftest"]:
             self._label(f, f"{fl:12}  {explain_flag(fl)}", text_color=self.theme["muted"]).pack(anchor="w")
 
     def _rebuild_idea_cards(self, host: ctk.CTkFrame) -> None:
@@ -865,10 +912,16 @@ class TrueNexusApp(ctk.CTk):
                 continue
             if want == "research only" and status != "research":
                 continue
+            if want == "notes only" and status != "note":
+                continue
             card = ctk.CTkFrame(host, fg_color=self.theme["fg"], corner_radius=8)
             card.pack(fill="x", pady=3)
-            badge = "LIVE" if status == "live" else "RESEARCH"
-            color = self.theme["success"] if status == "live" else self.theme["accent"]
+            badge = {"live": "LIVE", "research": "RESEARCH", "note": "NOTE"}.get(status, status.upper())
+            color = {
+                "live": self.theme["success"],
+                "research": self.theme["accent"],
+                "note": self.theme["muted"],
+            }.get(status, self.theme["accent"])
             ctk.CTkLabel(
                 card, text=f"{badge}  ·  {title}",
                 font=ctk.CTkFont(size=13, weight="bold"), text_color=color,
@@ -876,6 +929,122 @@ class TrueNexusApp(ctk.CTk):
             ctk.CTkLabel(
                 card, text=desc, text_color=self.theme["muted"], wraplength=640, justify="left",
             ).pack(anchor="w", padx=10, pady=(2, 8))
+
+
+    # ── Roadmap ─────────────────────────────────────────────────────────
+    def _build_roadmap(self) -> None:
+        tab = self.tabs.tab("Roadmap")
+        f = self._scroll(tab)
+        f.pack(fill="both", expand=True)
+        self._section(f, "Priority roadmap — every P0–P3 item")
+        for title, items in (
+            ("P0 — ship first", ROADMAP_P0),
+            ("P1 — differentiators", ROADMAP_P1),
+            ("P2 — research prestige", ROADMAP_P2),
+            ("P3 — moonshots", ROADMAP_P3),
+        ):
+            self._section(f, title)
+            for i, item in enumerate(items, 1):
+                self._label(f, f"{i}. {item}", text_color=self.theme["muted"]).pack(anchor="w", pady=2)
+        self._section(f, "Anti-ideas (explicit — nothing left out)")
+        for name, _st, desc in ANTI_IDEAS:
+            self._label(f, f"• {name}: {desc}", text_color=self.theme["danger"]).pack(anchor="w")
+        self._section(f, "Sources consulted")
+        for name, _st, desc in SOURCES:
+            self._label(f, f"• {name} — {desc}", text_color=self.theme["muted"]).pack(anchor="w")
+
+    # ── Recipes ─────────────────────────────────────────────────────────
+    def _build_recipes(self) -> None:
+        tab = self.tabs.tab("Recipes")
+        f = self._scroll(tab)
+        f.pack(fill="both", expand=True)
+        self._section(f, "Help-table + CLI sketches from the ideas doc")
+        self._label(
+            f,
+            "Pick a recipe → Apply fills TrueCollider fields with research intent.",
+            text_color=self.theme["muted"],
+        ).pack(anchor="w")
+        self.recipe_menu = ctk.CTkOptionMenu(f, values=RECIPE_LABELS, width=640)
+        self.recipe_menu.set(RECIPE_LABELS[0])
+        self.recipe_menu.pack(anchor="w", pady=8)
+        self.recipe_info = ctk.CTkTextbox(f, height=160)
+        self.recipe_info.pack(fill="x", pady=4)
+        for name, _st, desc in RECIPE_ITEMS:
+            self.recipe_info.insert("end", f"{name}: {desc}\n")
+        row = ctk.CTkFrame(f, fg_color="transparent")
+        row.pack(fill="x", pady=8)
+        ctk.CTkButton(row, text="Apply recipe → TrueCollider", command=self._apply_recipe).pack(side="left", padx=4)
+        ctk.CTkButton(row, text="Copy recipe list", command=lambda: self._copy_text(self.recipe_info.get("1.0", "end"))).pack(side="left", padx=4)
+
+    def _apply_recipe(self) -> None:
+        label = self.recipe_menu.get()
+        key = label.split(" (")[0].lower()
+        mapping = {
+            "address + sobol": ("address", "sobol (research)"),
+            "rmd160 prefix": ("rmd160", None),
+            "rmd160 / shadow160": ("shadow160 (research)", None),
+            "bsgs grumpy": ("bsgs", None),
+            "bsgs orbit": ("bsgs", None),
+            "bsgs handoff": ("bsgs", None),
+            "kangaroo --mod": ("kangaroo-mod (research)", None),
+            "weakrng milksad": ("weakrng (research)", None),
+            "mnemonic mask": ("mnemonic", None),
+            "mnemonic pass-*": ("mnemonic", None),
+            "mnemonic electrum-v2": ("mnemonic", None),
+            "mnemonic milksad": ("mnemonic", None),
+            "mnemonic model": ("mnemonic", None),
+        }
+        for k, (mode, pattern) in mapping.items():
+            if k in key:
+                self.tc_mode.set(mode)
+                if pattern and hasattr(self, "tc_pattern"):
+                    # try set pattern if exists in menu values
+                    try:
+                        self.tc_pattern.set(pattern)
+                    except Exception:
+                        pass
+                if "bsgs" in k and hasattr(self, "bsgs_strat"):
+                    for v in ("grumpy", "orbit", "handoff"):
+                        if v in k:
+                            for opt in self.bsgs_strat._values if hasattr(self.bsgs_strat, "_values") else []:
+                                pass
+                            try:
+                                self.bsgs_strat.set(f"{v} (research)")
+                            except Exception:
+                                pass
+                if "mnemonic" in k and hasattr(self, "mn_sub"):
+                    for token in ("mask", "pass-dict", "electrum-v2", "milksad", "model"):
+                        if token.replace("pass-dict", "pass") in k or token in k:
+                            for v in MNEMONIC_SUBMODES:
+                                if token.split("-")[0] in v or token in v:
+                                    self.mn_sub.set(v)
+                                    break
+                if "weakrng" in k:
+                    self.tabs.set("WeakRNG Lab")
+                    self._set_status(f"Recipe applied: {label}")
+                    return
+                break
+        self.tabs.set("TrueCollider")
+        self._set_status(f"Recipe applied: {label}")
+
+    # ── Full Ideas Doc ──────────────────────────────────────────────────
+    def _build_ideas_doc(self) -> None:
+        tab = self.tabs.tab("Full Ideas Doc")
+        f = self._scroll(tab)
+        f.pack(fill="both", expand=True)
+        self._section(f, "Complete README_IDEAS_FOR_IMPROVEMENT (nothing omitted)")
+        box = ctk.CTkTextbox(f, height=620, font=ctk.CTkFont(family="Consolas", size=12))
+        box.pack(fill="both", expand=True, pady=6)
+        ideas_path = ROOT / "docs" / "README_IDEAS_FOR_IMPROVEMENT.md"
+        if ideas_path.exists():
+            box.insert("1.0", ideas_path.read_text(encoding="utf-8"))
+        else:
+            box.insert("1.0", completeness_report() + "\n\n(Full markdown missing from docs/)")
+        row = ctk.CTkFrame(f, fg_color="transparent")
+        row.pack(fill="x")
+        ctk.CTkButton(row, text="Copy entire ideas doc", command=lambda: self._copy_text(box.get("1.0", "end"))).pack(side="left", padx=4)
+        ctk.CTkButton(row, text="Open docs folder", command=lambda: os.startfile(str(ROOT / "docs"))).pack(side="left", padx=4)
+
 
     # ── Settings ────────────────────────────────────────────────────────
     def _build_settings(self) -> None:

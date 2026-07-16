@@ -12,6 +12,7 @@ from truenexus.ideas_catalog import (
     mnemonic_strategy_labels,
     mnemonic_submode_labels,
     pattern_labels,
+    recipe_labels,
     rmd160_sub_labels,
     weakrng_labels,
 )
@@ -36,13 +37,16 @@ LOOK = ["compress", "uncompress", "both"]
 LANGS = [
     "english", "spanish", "french", "italian", "czech", "portuguese",
     "japanese", "korean", "chinese_simplified", "chinese_traditional", "all",
+    "prism (research)",
 ]
 GPU = ["none", "cuda", "opencl"]
 VECTOR = ["auto", "none", "sse", "avx", "avx2", "avx512"]
 PATH_PACKS = [
     "paths-btc (research)", "paths-eth (research)", "paths-electrum (research)",
     "paths-custom (research)", "account-sweep (research)", "multisig-cosigner (research)",
+    "change-chain-1 (research)", "bip86-taproot (research)",
 ]
+RECIPES = recipe_labels()
 
 
 def _live_token(value: str) -> str:
@@ -87,6 +91,9 @@ class ColliderConfig:
     quiet: bool = True
     stats: str = "10"
     dry_run: bool = False
+    balance_check: bool = False
+    balance_url: str = ""
+    handoff_bits: str = ""
     vanity: str = ""
     mnemonic_words: str = "12"
     mnemonic_lang: str = "english"
@@ -247,6 +254,13 @@ class ColliderConfig:
             parts += ["-s", self.stats]
         if self.dry_run:
             parts.append("-y")
+        if self.balance_check:
+            if self.balance_url.strip():
+                parts.append(f"-N{self.balance_url.strip()}")
+            else:
+                parts.append("-N")
+        if self.handoff_bits:
+            warns.append(f"HerdHandoff -H {self.handoff_bits} (research intent)")
 
         fstrat = _live_token(self.filter_strategy)
         if fstrat not in ("default fuse", "default", "bloom-classic"):
@@ -352,6 +366,7 @@ def explain_flag(flag: str) -> str:
         "-p": "BIP-32 derivation path (address/rmd160).",
         "-v": "Vanity prefix.",
         "-T": "Unix timestamp window center for timestamp-key hunts.",
+        "-N": "Online balance check on hit (public API or RPC URL).",
         "-y": "Dry-run config dump.",
         "-q": "Quiet stats.",
         "-ckeys": "TrueMkeyCollider encrypted ckey file.",

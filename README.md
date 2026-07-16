@@ -209,14 +209,15 @@ For others, supply your own `-f` target file.
 
 ## Ideas completeness
 
-TrueNexus embeds **every idea** from the TrueCollider improvement research matrix:
+TrueNexus embeds **every idea** from the TrueCollider improvement research matrix — **nothing omitted**:
 
-- **150 catalog entries** in the Ideas Matrix (filter: ALL / live / research)
-- Dropdowns cover all modes, patterns, BSGS strategies, mnemonic recovery/passphrase/ecosystems/strategies, WeakRNG/CrystalPRNG, address & rmd160 expansions, filters, and cross-cutting features
-- **Live** entries launch real TrueCollider / TrueMkeyCollider flags today
-- **Research** entries are fully selectable and annotated in command previews until kernels ship (honest fallbacks — no fake claims)
+- **225+ catalog entries** across 20 sections (Ideas Matrix filter: ALL / live / research / notes)
+- Tabs: **Ideas Matrix · Roadmap (P0–P3) · Recipes · Full Ideas Doc** (complete markdown mirror)
+- Dropdowns cover all modes, patterns, BSGS (+ impl notes), mnemonic recovery/passphrase/ecosystems/path packs/strategies, WeakRNG, address & rmd160, filters, cross-cutting, anti-ideas, sources
+- Extra fields: `-N` balance, HerdHandoff `-H`, density-map file, funded snapshot, known mnemonic, pass-mask, rules file, dual-range, freeze-table, batched-gpu-giants, change-chain, BIP-86
+- **Live** → real flags today · **Research** → selectable + annotated previews · **Notes** → gaps/anti-ideas/sources documented in-UI
 
-New tab: **WeakRNG Lab** (milksad · randstorm · android-sr · profanity · timestamp-key).
+Full text also at `docs/README_IDEAS_FOR_IMPROVEMENT.md`.
 
 ---
 
