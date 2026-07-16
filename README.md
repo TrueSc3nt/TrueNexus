@@ -207,6 +207,19 @@ For others, supply your own `-f` target file.
 
 ---
 
+## Ideas completeness
+
+TrueNexus embeds **every idea** from the TrueCollider improvement research matrix:
+
+- **150 catalog entries** in the Ideas Matrix (filter: ALL / live / research)
+- Dropdowns cover all modes, patterns, BSGS strategies, mnemonic recovery/passphrase/ecosystems/strategies, WeakRNG/CrystalPRNG, address & rmd160 expansions, filters, and cross-cutting features
+- **Live** entries launch real TrueCollider / TrueMkeyCollider flags today
+- **Research** entries are fully selectable and annotated in command previews until kernels ship (honest fallbacks — no fake claims)
+
+New tab: **WeakRNG Lab** (milksad · randstorm · android-sr · profanity · timestamp-key).
+
+---
+
 ## Research Labs (Ideas Matrix)
 
 TrueNexus surfaces the full improvement vision as named product concepts:

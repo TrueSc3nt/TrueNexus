@@ -1,0 +1,13 @@
+@echo off
+title TrueNexus Setup
+cd /d "%~dp0"
+echo [1/3] Installing Python dependencies...
+python -m pip install -r requirements.txt
+echo [2/3] Writing binary paths...
+python -c "import json; from pathlib import Path; p=Path('presets'); p.mkdir(exist_ok=True); (p/'user_settings.json').write_text(json.dumps({'truecollider_exe': r'C:\Users\loulo\Desktop\updayingkeyunt\TrueCollider-master\keyhunt.exe','truecollider_cuda': r'C:\Users\loulo\Desktop\updayingkeyunt\TrueCollider-master\keyhunt_cuda.exe','truemkey_exe': r'C:\Users\loulo\Desktop\TrueMkeyCollider\TrueMkeyCollider.exe','workdir': r'C:\Users\loulo\Desktop\updayingkeyunt\TrueCollider-master','theme': 'Obsidian Gold','auto_configured': True}, indent=2), encoding='utf-8'); print('settings ok')"
+echo [3/3] Ideas catalog check...
+python -c "from truenexus.ideas_catalog import completeness_report; print(completeness_report())"
+echo.
+echo Launching TrueNexus...
+start "" python -m truenexus
+pause

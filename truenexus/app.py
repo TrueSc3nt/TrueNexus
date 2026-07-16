@@ -13,20 +13,33 @@ import customtkinter as ctk
 
 from truenexus import __donate_btc__, __telegram__, __truecollider__, __truemkey__, __version__
 from truenexus.builders import (
+    ADDRESS_SUBMODES,
     BSGS_STRATEGIES,
     COINS,
     FILTER_STRATS,
     GPU,
     LANGS,
     LOOK,
+    MNEMONIC_STRATEGIES,
     MNEMONIC_SUBMODES,
+    MODES_ALL,
     MODES_LIVE,
-    MODES_RESEARCH,
+    PATH_PACKS,
+    RMD160_SUBMODES,
     SEARCH_PATTERNS,
     VECTOR,
+    WEAKRNG_SUBMODES,
     ColliderConfig,
     MkeyConfig,
     explain_flag,
+)
+from truenexus.ideas_catalog import (
+    ROADMAP_P0,
+    ROADMAP_P1,
+    ROADMAP_P2,
+    ROADMAP_P3,
+    all_idea_cards,
+    completeness_report,
 )
 from truenexus.puzzles import (
     KNOWN_ADDR,
@@ -146,7 +159,8 @@ class TrueNexusApp(ctk.CTk):
         self.tabs.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         for name in (
             "Home", "TrueCollider", "Puzzles", "Mnemonic Lab", "BSGS Lab",
-            "Address / RMD160", "TrueMkey", "Ideas Matrix", "Settings", "About",
+            "Address / RMD160", "WeakRNG Lab", "TrueMkey", "Ideas Matrix",
+            "Settings", "About",
         ):
             self.tabs.add(name)
 
@@ -156,6 +170,7 @@ class TrueNexusApp(ctk.CTk):
         self._build_mnemonic()
         self._build_bsgs()
         self._build_address()
+        self._build_weakrng()
         self._build_mkey()
         self._build_ideas()
         self._build_settings()
@@ -240,10 +255,25 @@ class TrueNexusApp(ctk.CTk):
         ctk.CTkButton(btns, text="Quick Puzzle 66", command=self._quick_puzzle66).pack(side="left", padx=4)
 
         self._section(f, "Mode advisor")
-        self.advisor = ctk.CTkTextbox(f, height=140)
+        self.advisor = ctk.CTkTextbox(f, height=120)
         self.advisor.pack(fill="x", pady=4)
         self.advisor.insert("1.0", self._advisor_text())
         self.advisor.configure(state="disabled")
+
+        self._section(f, "Ideas completeness (all of README_IDEAS_FOR_IMPROVEMENT)")
+        report = ctk.CTkTextbox(f, height=160, font=ctk.CTkFont(family="Consolas", size=12))
+        report.pack(fill="x", pady=4)
+        report.insert("1.0", completeness_report())
+        report.configure(state="disabled")
+        self._label(
+            f,
+            "P0: " + " · ".join(ROADMAP_P0[:3]) + "…\n"
+            "P1: " + " · ".join(ROADMAP_P1[:3]) + "…\n"
+            "P2: " + " · ".join(ROADMAP_P2[:3]) + "…\n"
+            "P3: " + " · ".join(ROADMAP_P3[:3]) + "…",
+            text_color=self.theme["muted"],
+            justify="left",
+        ).pack(anchor="w", pady=6)
 
     def _advisor_text(self) -> str:
         return (
@@ -270,8 +300,7 @@ class TrueNexusApp(ctk.CTk):
         self._section(f, "Core search")
         grid = ctk.CTkFrame(f, fg_color="transparent")
         grid.pack(fill="x")
-        modes = MODES_LIVE + MODES_RESEARCH
-        self.tc_mode = self._dropdown(grid, "Mode (-m)", modes, "address", 0, 0)
+        self.tc_mode = self._dropdown(grid, "Mode (-m) — ALL live + research", MODES_ALL, "address", 0, 0)
         self.tc_coin = self._dropdown(grid, "Coin (-c)", COINS, "btc", 0, 1)
         self.tc_look = self._dropdown(grid, "Look (-l)", LOOK, "compress", 1, 0)
         self.tc_pattern = self._dropdown(grid, "Pattern (-x)", SEARCH_PATTERNS, "chaos", 1, 1)
@@ -385,18 +414,26 @@ class TrueNexusApp(ctk.CTk):
             mnemonic_lang=getattr(self, "mn_lang", ctk.StringVar(value="english")).get()
             if hasattr(self, "mn_lang") else "english",
             mnemonic_eth=bool(self.mn_eth.get()) if hasattr(self, "mn_eth") else False,
-            mnemonic_submode=getattr(self, "mn_sub", ctk.StringVar(value="random (live)")).get()
-            if hasattr(self, "mn_sub") else "random (live)",
-            seed_mask=getattr(self, "mn_mask", ctk.StringVar(value="")).get()
-            if hasattr(self, "mn_mask") else "",
-            passphrase_file=getattr(self, "mn_pass", ctk.StringVar(value="")).get()
-            if hasattr(self, "mn_pass") else "",
-            derivation_path=getattr(self, "addr_path", ctk.StringVar(value="")).get()
-            if hasattr(self, "addr_path") else "",
-            derivation_depth=getattr(self, "addr_depth", ctk.StringVar(value="1")).get()
-            if hasattr(self, "addr_depth") else "1",
-            filter_strategy=getattr(self, "addr_filter", ctk.StringVar(value="default fuse")).get()
-            if hasattr(self, "addr_filter") else "default fuse",
+            mnemonic_submode=self.mn_sub.get() if hasattr(self, "mn_sub") else "random",
+            mnemonic_strategy=self.mn_strat.get() if hasattr(self, "mn_strat") else "checksum-first (research)",
+            seed_mask=self.mn_mask.get() if hasattr(self, "mn_mask") else "",
+            passphrase_file=self.mn_pass.get() if hasattr(self, "mn_pass") else "",
+            model_file=self.mn_model.get() if hasattr(self, "mn_model") else "",
+            dual_target_file=self.mn_dual.get() if hasattr(self, "mn_dual") else "",
+            path_pack=self.mn_pack.get() if hasattr(self, "mn_pack") else "paths-btc (research)",
+            derivation_path=self.addr_path.get() if hasattr(self, "addr_path") else "",
+            derivation_depth=(
+                self.mn_depth.get() if hasattr(self, "mn_depth") and self.tc_mode.get().startswith("mnemonic")
+                else (self.addr_depth.get() if hasattr(self, "addr_depth") else "1")
+            ),
+            filter_strategy=self.addr_filter.get() if hasattr(self, "addr_filter") else "default fuse",
+            address_sub=self.addr_sub.get() if hasattr(self, "addr_sub") else "default",
+            rmd160_sub=self.rmd_sub.get() if hasattr(self, "rmd_sub") else "exact",
+            weakrng_sub=self.wr_sub.get() if hasattr(self, "wr_sub") else "milksad (research)",
+            timestamp_window=self.wr_ts.get() if hasattr(self, "wr_ts") else "",
+            residue_mr=self.bsgs_mod.get() if hasattr(self, "bsgs_mod") else "",
+            collision_bits=self.shadow_bits.get() if hasattr(self, "shadow_bits") else "48",
+            stride=self.addr_stride.get() if hasattr(self, "addr_stride") else "",
         )
 
     def _preview_collider(self) -> None:
@@ -408,12 +445,21 @@ class TrueNexusApp(ctk.CTk):
             cfg.n_table = self.bsgs_n.get()
         if hasattr(self, "mn_sub"):
             cfg.mnemonic_submode = self.mn_sub.get()
+            cfg.mnemonic_strategy = self.mn_strat.get() if hasattr(self, "mn_strat") else cfg.mnemonic_strategy
             cfg.mnemonic_words = self.mn_words.get()
             cfg.mnemonic_lang = self.mn_lang.get()
             cfg.mnemonic_eth = bool(self.mn_eth.get())
             cfg.seed_mask = self.mn_mask.get()
             cfg.passphrase_file = self.mn_pass.get()
+            cfg.model_file = self.mn_model.get() if hasattr(self, "mn_model") else ""
+            cfg.dual_target_file = self.mn_dual.get() if hasattr(self, "mn_dual") else ""
+            cfg.path_pack = self.mn_pack.get() if hasattr(self, "mn_pack") else cfg.path_pack
             cfg.derivation_depth = self.mn_depth.get()
+        if hasattr(self, "bsgs_mod"):
+            cfg.residue_mr = self.bsgs_mod.get()
+        if hasattr(self, "wr_sub"):
+            cfg.weakrng_sub = self.wr_sub.get()
+            cfg.timestamp_window = self.wr_ts.get()
         cmd, warns = cfg.build()
         self.tc_preview.delete("1.0", "end")
         self.tc_preview.insert("1.0", cmd)
@@ -516,34 +562,39 @@ class TrueNexusApp(ctk.CTk):
         tab = self.tabs.tab("Mnemonic Lab")
         f = self._scroll(tab)
         f.pack(fill="both", expand=True)
-        self._section(f, "Full mnemonic ecosystem")
+        self._section(f, "Complete mnemonic ecosystem (every idea)")
         self._label(
             f,
             "Live today: random BIP-39 → PBKDF2 → BIP-44/49/84.\n"
-            "Research dropdowns (mask, passphrase, Electrum, SLIP39, …) are wired in the UI and annotated in previews\n"
-            "so the suite is ready as TrueCollider kernels land.",
+            "ALL recovery / passphrase / Electrum / SLIP39 / strategy ideas are in the dropdowns.",
             text_color=self.theme["muted"],
         ).pack(anchor="w")
 
         g = ctk.CTkFrame(f, fg_color="transparent")
         g.pack(fill="x", pady=6)
-        self.mn_sub = self._dropdown(g, "Mnemonic submode", MNEMONIC_SUBMODES, "random (live)", 0, 0)
-        self.mn_words_menu = self._dropdown(g, "Words (-w)", ["0", "12", "15", "18", "21", "24"], "12", 0, 1)
+        self.mn_sub = self._dropdown(g, "Submode (recovery/pass/ecosystem/paths)", MNEMONIC_SUBMODES, "random", 0, 0)
+        self.mn_strat = self._dropdown(g, "Strategy (checksum-first, lattice, …)", MNEMONIC_STRATEGIES, "checksum-first (research)", 0, 1)
+        self.mn_words_menu = self._dropdown(g, "Words (-w)", ["0", "12", "15", "18", "21", "24"], "12", 1, 0)
         self.mn_words = ctk.StringVar(value="12")
         self.mn_words_menu.configure(command=lambda v: self.mn_words.set(v))
-        self.mn_lang_menu = self._dropdown(g, "Language (-L)", LANGS, "english", 1, 0)
+        self.mn_lang_menu = self._dropdown(g, "Language (-L)", LANGS, "english", 1, 1)
         self.mn_lang = ctk.StringVar(value="english")
         self.mn_lang_menu.configure(command=lambda v: self.mn_lang.set(v))
-        self.mn_depth = self._entry(g, "Index depth (-D)", "5", 1, 1)
+        self.mn_depth = self._entry(g, "Index depth (-D)", "5", 2, 0)
+        self.mn_pack = self._dropdown(g, "PathNova pack", PATH_PACKS, "paths-btc (research)", 2, 1)
 
         self.mn_mask = ctk.StringVar()
         self._label(f, "Seed mask / known words (use ? for unknown)", text_color=self.theme["muted"]).pack(anchor="w", pady=(8, 2))
         ctk.CTkEntry(f, textvariable=self.mn_mask, placeholder_text="abandon ? ? zoo ... about").pack(fill="x")
 
         self.mn_pass = ctk.StringVar()
-        self._path_row(f, "Passphrase dictionary (25th word)", self.mn_pass)
+        self.mn_model = ctk.StringVar()
+        self.mn_dual = ctk.StringVar()
+        self._path_row(f, "Passphrase dictionary / rules (25th word)", self.mn_pass)
+        self._path_row(f, "Model constraints file (JSON/TXT)", self.mn_model)
+        self._path_row(f, "DualTarget second address file", self.mn_dual)
 
-        self.mn_eth = ctk.CTkCheckBox(f, text="ETH keccak checks (-W)  [note: live paths still use coin-type 0']")
+        self.mn_eth = ctk.CTkCheckBox(f, text="ETH keccak checks (-W)  [live paths still coin-type 0' until PathNova lands]")
         self.mn_eth.pack(anchor="w", pady=8)
 
         row = ctk.CTkFrame(f, fg_color="transparent")
@@ -552,14 +603,16 @@ class TrueNexusApp(ctk.CTk):
         ctk.CTkButton(row, text="Preview & Launch", fg_color=self.theme["accent"], text_color="#111",
                       command=self._launch_mnemonic).pack(side="left", padx=4)
 
-        self._section(f, "Path packs (research-ready presets)")
-        for name, path in [
-            ("BTC standard", "m/44'/0'/0'/0 + m/49' + m/84' + m/86'"),
-            ("ETH Ledger Live", "m/44'/60'/0'/0  and  m/44'/60'/0'"),
-            ("Electrum", "m/0/  and  m/1/ gap"),
-            ("Solana BIP39", "ed25519 SLIP-0010 paths"),
-        ]:
-            self._label(f, f"• {name}: {path}", text_color=self.theme["muted"]).pack(anchor="w")
+        self._section(f, "Included submodes (from ideas doc)")
+        self._label(
+            f,
+            "Recovery: mask · model · lastword · prefix-word · typo · permute · anagram · positional-swap · language-guess · mixed-script\n"
+            "Passphrase: pass-dict · pass-mask · pass-rules · pass-hybrid · pass-empty-plus\n"
+            "Ecosystems: electrum-v1/v2 · slip39 · aezeed · bip85 · rfc1751 · solana-bip39 · milksad\n"
+            "Strategies: checksum-first · entropy-guided · freq-prior · lattice · checkpointed · producer-split · WordOrbit · PhraseGravity · SeedCascadeVerify · DualTarget · ChecksumPrism",
+            text_color=self.theme["muted"],
+            justify="left",
+        ).pack(anchor="w")
 
     def _apply_mnemonic(self) -> None:
         self.tc_mode.set("mnemonic")
@@ -587,15 +640,17 @@ class TrueNexusApp(ctk.CTk):
 
         g = ctk.CTkFrame(f, fg_color="transparent")
         g.pack(fill="x")
-        self.bsgs_strat = self._dropdown(g, "Strategy (-B)", BSGS_STRATEGIES, "random", 0, 0)
+        self.bsgs_strat = self._dropdown(g, "Strategy (-B) — ALL live + research", BSGS_STRATEGIES, "random", 0, 0)
         self.bsgs_k = self._entry(g, "K factor (-k)", "auto", 0, 1)
         self.bsgs_n = self._entry(g, "Table N (-n)", "0x100000000000", 1, 0)
-        self.bsgs_mod = self._entry(g, "Residue M:R (research)", "", 1, 1)
+        self.bsgs_mod = self._entry(g, "Residue M:R (Gaudry/ResidueHerd)", "", 1, 1)
 
         tips = (
-            "RAM guide: 8G→-k512 | 16G→-k1024 | 32G→-k2048 | 64G+→raise -n and -k\n"
-            "Pubkey required in -f (66 or 130 hex). Prefer kangaroo when N is huge.\n"
-            "HerdHandoff: run coarse BSGS then auto-pocket kangaroo (research).\n"
+            "Live: sequential · backward · both · random · dance\n"
+            "Research: grumpy · interleave · orbit · residue · dual-range · nested/fractal ·\n"
+            "async-resolve · multi-target · negmap · handoff · gravity/chaos/sobol-giant ·\n"
+            "freeze-table · compact-dp\n"
+            "RAM guide: 8G→-k512 | 16G→-k1024 | 32G→-k2048 | Prefer kangaroo when N is huge.\n"
         )
         self._label(f, tips, justify="left").pack(anchor="w", pady=8)
         row = ctk.CTkFrame(f, fg_color="transparent")
@@ -619,27 +674,85 @@ class TrueNexusApp(ctk.CTk):
         tab = self.tabs.tab("Address / RMD160")
         f = self._scroll(tab)
         f.pack(fill="both", expand=True)
-        self._section(f, "Address & hash160 hunting")
+        self._section(f, "Address & hash160 — every expansion idea")
         g = ctk.CTkFrame(f, fg_color="transparent")
         g.pack(fill="x")
-        self.addr_mode = self._dropdown(g, "Mode", ["address", "rmd160", "xpoint", "pubkey2addr", "shadow160 (research)"], "address", 0, 0)
-        self.addr_filter = self._dropdown(g, "Filter strategy", FILTER_STRATS, "default fuse", 0, 1)
-        self.addr_path = self._entry(g, "BIP-32 path (-p)", "m/84'/0'/0'/0", 1, 0)
-        self.addr_depth = self._entry(g, "Depth (-D)", "10", 1, 1)
+        self.addr_mode = self._dropdown(
+            g, "Base mode",
+            ["address", "rmd160", "xpoint", "pubkey2addr", "shadow160 (research)"],
+            "address", 0, 0,
+        )
+        self.addr_sub = self._dropdown(g, "Address submode", ADDRESS_SUBMODES, "default", 0, 1)
+        self.rmd_sub = self._dropdown(g, "RMD160 submode", RMD160_SUBMODES, "exact", 1, 0)
+        self.addr_filter = self._dropdown(g, "Filter (FuseCascade / fuse16 / …)", FILTER_STRATS, "default fuse", 1, 1)
+        self.addr_path = self._entry(g, "BIP-32 path (-p)", "m/84'/0'/0'/0", 2, 0)
+        self.addr_depth = self._entry(g, "Depth (-D)", "10", 2, 1)
+        self.shadow_bits = self._entry(g, "Shadow160 collision bits", "48", 3, 0)
+        self.addr_stride = self._entry(g, "Stride (-I) / adaptive intent", "", 3, 1)
 
         self._label(
             f,
-            "shadow160 = birthday / partial RIPEMD-160 collider (research).\n"
-            "FuseCascade / fuse16 = multi-resolution filters for huge target lists (research).\n"
-            "Hilbert / Sobol patterns live under Pattern (-x) on the TrueCollider tab.",
+            "Address ideas: hilbert/sobol · density-map · multi-coin-fuse · hd-fanout · vanity-regex ·\n"
+            "balance-prior · stream-targets · gpu-hash160-device · stride-adaptive · pair-compress · CascadeHunt\n"
+            "RMD160 ideas: exact · prefix-N · shadow160 · funded-only · script-tags · rmd-of-xonly ·\n"
+            "dual-bloom-device · cascade-filter · unsorted-ingest",
             text_color=self.theme["muted"],
+            justify="left",
         ).pack(anchor="w", pady=8)
         ctk.CTkButton(f, text="Apply → TrueCollider", command=self._apply_address).pack(anchor="w", pady=4)
 
     def _apply_address(self) -> None:
         mode = self.addr_mode.get().split(" (")[0]
         self.tc_mode.set(mode if mode in MODES_LIVE else "rmd160")
+        if hasattr(self, "addr_stride") and self.addr_stride.get().strip():
+            # stash into extra if numeric
+            pass
         self.tabs.set("TrueCollider")
+
+    # ── WeakRNG / CrystalPRNG ───────────────────────────────────────────
+    def _build_weakrng(self) -> None:
+        tab = self.tabs.tab("WeakRNG Lab")
+        f = self._scroll(tab)
+        f.pack(fill="both", expand=True)
+        self._section(f, "CrystalPRNG — weak entropy keyspaces")
+        self._label(
+            f,
+            "Enumerate broken RNG spaces instead of pretending 256-bit is searchable.\n"
+            "All submodes from the ideas doc are here.",
+            text_color=self.theme["muted"],
+        ).pack(anchor="w")
+        g = ctk.CTkFrame(f, fg_color="transparent")
+        g.pack(fill="x", pady=6)
+        self.wr_sub = self._dropdown(g, "WeakRNG submode", WEAKRNG_SUBMODES, "milksad (research)", 0, 0)
+        self.wr_ts = self._entry(g, "Timestamp / window (-T or start:end)", "", 0, 1)
+        for name, desc in [
+            ("milksad", "Libbitcoin Explorer MT19937 — CVE-2023-39910 (~2^32 + time)"),
+            ("randstorm", "BitcoinJS / browser weak entropy eras"),
+            ("android-sr", "Android SecureRandom 2013 reduced entropy"),
+            ("profanity", "32-bit seed ETH vanity generator"),
+            ("timestamp-key", "Keys derived from unix time / counters"),
+        ]:
+            self._label(f, f"• {name}: {desc}", text_color=self.theme["muted"]).pack(anchor="w")
+        row = ctk.CTkFrame(f, fg_color="transparent")
+        row.pack(fill="x", pady=10)
+        ctk.CTkButton(row, text="Apply → TrueCollider (weakrng)", command=self._apply_weakrng).pack(side="left", padx=4)
+        ctk.CTkButton(row, text="Also set mnemonic milksad", command=self._apply_mn_milksad).pack(side="left", padx=4)
+
+    def _apply_weakrng(self) -> None:
+        self.tc_mode.set("weakrng (research)")
+        self.tabs.set("TrueCollider")
+        self._set_status(f"WeakRNG {self.wr_sub.get()} applied")
+
+    def _apply_mn_milksad(self) -> None:
+        self.tc_mode.set("mnemonic")
+        if hasattr(self, "mn_sub"):
+            # find milksad in list
+            for v in MNEMONIC_SUBMODES:
+                if "milksad" in v:
+                    self.mn_sub.set(v)
+                    break
+        self.tabs.set("Mnemonic Lab")
+        self._set_status("Mnemonic Milk Sad / EntropyTimeline selected")
 
     # ── TrueMkey ────────────────────────────────────────────────────────
     def _build_mkey(self) -> None:
@@ -717,36 +830,52 @@ class TrueNexusApp(ctk.CTk):
         tab = self.tabs.tab("Ideas Matrix")
         f = self._scroll(tab)
         f.pack(fill="both", expand=True)
-        self._section(f, "Research algorithms & modes")
-        ideas = [
-            ("OrbitBSGS", "Endomorphism-collapsed baby table for smaller RAM at same coverage."),
-            ("HerdHandoff", "BSGS localizes a pocket → kangaroo finishes. Hybrid DL pipeline."),
-            ("GrumpyBSGS", "Bernstein–Lange two grumpy giants + baby — better average-case."),
-            ("InterleaveBSGS", "Average-case interleaved baby/giant work."),
-            ("GaudrySchost / ResidueHerd", "Modular constraints k≡r (mod m); multi-dimensional walks."),
-            ("FuseCascade", "Coarse→mid→exact multi-resolution filters for huge address sets."),
-            ("HilbertStride / SobolWalk", "Quasirandom coverage stronger than plain random/chaos."),
-            ("Shadow160", "Partial RIPEMD-160 birthday collider (DP herds)."),
-            ("CrystalPRNG", "Milk Sad / Randstorm / Android SecureRandom / Profanity keyspaces."),
-            ("MnemonicLattice", "Checksum-valid entropy enumeration, not word-by-word thrash."),
-            ("ChecksumPrism", "One entropy → all BIP-39 languages in one pass."),
-            ("PathNova", "Budgeted wallet path packs (Ledger/Trezor/MetaMask/Electrum)."),
-            ("WordOrbit", "Fuzzy memory expansion: edit distance, phonetic, prefix."),
-            ("SeedCascadeVerify", "Cheapest checks first: wordlist→checksum→PBKDF2→paths."),
-            ("PhraseGravity", "Bias seed search after near-misses (gravity for mnemonic space)."),
-            ("Producer/Consumer GPU", "Split checksum / PBKDF2 / EC across GPUs."),
-        ]
-        for title, desc in ideas:
-            card = ctk.CTkFrame(f, fg_color=self.theme["fg"], corner_radius=8)
-            card.pack(fill="x", pady=4)
-            ctk.CTkLabel(card, text=title, font=ctk.CTkFont(size=14, weight="bold"),
-                         text_color=self.theme["accent"]).pack(anchor="w", padx=10, pady=(8, 0))
-            ctk.CTkLabel(card, text=desc, text_color=self.theme["muted"], wraplength=620,
-                         justify="left").pack(anchor="w", padx=10, pady=(2, 8))
+        self._section(f, "EVERY idea from README_IDEAS_FOR_IMPROVEMENT")
+        rep = ctk.CTkTextbox(f, height=100, font=ctk.CTkFont(family="Consolas", size=12))
+        rep.pack(fill="x", pady=4)
+        rep.insert("1.0", completeness_report())
+        rep.configure(state="disabled")
 
-        self._section(f, "Flag encyclopedia (hover-level explanations)")
-        for fl in ["-m", "-f", "-b", "-r", "-x", "-B", "-k", "-e", "-U", "-M", "-w", "-L", "--partial", "--selftest"]:
+        filter_row = ctk.CTkFrame(f, fg_color="transparent")
+        filter_row.pack(fill="x", pady=4)
+        self.ideas_filter = ctk.CTkOptionMenu(
+            filter_row,
+            values=["ALL", "live only", "research only"],
+            command=lambda _v: self._rebuild_idea_cards(self._ideas_host),
+            width=160,
+        )
+        self.ideas_filter.set("ALL")
+        self.ideas_filter.pack(side="left")
+
+        ideas_host = ctk.CTkFrame(f, fg_color="transparent")
+        ideas_host.pack(fill="both", expand=True)
+        self._ideas_host = ideas_host
+        self._rebuild_idea_cards(ideas_host)
+
+        self._section(f, "Flag encyclopedia")
+        for fl in ["-m", "-f", "-b", "-r", "-x", "-B", "-k", "-e", "-U", "-M", "-w", "-L", "-T", "--partial", "--selftest"]:
             self._label(f, f"{fl:12}  {explain_flag(fl)}", text_color=self.theme["muted"]).pack(anchor="w")
+
+    def _rebuild_idea_cards(self, host: ctk.CTkFrame) -> None:
+        for child in host.winfo_children():
+            child.destroy()
+        want = self.ideas_filter.get() if hasattr(self, "ideas_filter") else "ALL"
+        for title, status, desc in all_idea_cards():
+            if want == "live only" and status != "live":
+                continue
+            if want == "research only" and status != "research":
+                continue
+            card = ctk.CTkFrame(host, fg_color=self.theme["fg"], corner_radius=8)
+            card.pack(fill="x", pady=3)
+            badge = "LIVE" if status == "live" else "RESEARCH"
+            color = self.theme["success"] if status == "live" else self.theme["accent"]
+            ctk.CTkLabel(
+                card, text=f"{badge}  ·  {title}",
+                font=ctk.CTkFont(size=13, weight="bold"), text_color=color,
+            ).pack(anchor="w", padx=10, pady=(6, 0))
+            ctk.CTkLabel(
+                card, text=desc, text_color=self.theme["muted"], wraplength=640, justify="left",
+            ).pack(anchor="w", padx=10, pady=(2, 8))
 
     # ── Settings ────────────────────────────────────────────────────────
     def _build_settings(self) -> None:

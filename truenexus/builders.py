@@ -3,42 +3,33 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
-
-# ── TrueCollider option catalogs (shipped + research ideas) ──────────────
+from truenexus.ideas_catalog import (
+    address_sub_labels,
+    bsgs_labels,
+    filter_labels,
+    mode_labels,
+    mnemonic_strategy_labels,
+    mnemonic_submode_labels,
+    pattern_labels,
+    rmd160_sub_labels,
+    weakrng_labels,
+)
 
 MODES_LIVE = [
     "address", "rmd160", "xpoint", "bsgs", "kangaroo", "vanity",
     "minikeys", "mnemonic", "poetry", "brainwallet", "pubkey2addr",
 ]
 
-MODES_RESEARCH = [
-    "hybrid-dl (HerdHandoff)", "gaudry (MultiDim-DL)", "shadow160",
-    "weakrng", "CreateAccountWithSeed",
-]
-
-SEARCH_PATTERNS = [
-    "sequential", "random", "chaos", "gravity", "spiral", "reverse", "auto",
-    "hilbert (research)", "sobol (research)", "rseq",
-]
-
-BSGS_STRATEGIES = [
-    "sequential", "backward", "both", "random", "dance",
-    "grumpy (research)", "interleave (research)", "orbit (research)",
-    "residue (research)", "handoff (research)", "negmap (research)",
-    "nested (research)", "async-resolve (research)", "multi-target (research)",
-    "gravity-giant (research)", "chaos-giant (research)", "sobol-giant (research)",
-]
-
-MNEMONIC_SUBMODES = [
-    "random (live)", "mask (research)", "model (research)", "lastword (research)",
-    "prefix-word (research)", "typo (research)", "permute (research)",
-    "pass-dict (research)", "pass-mask (research)", "pass-rules (research)",
-    "electrum-v1 (research)", "electrum-v2 (research)", "slip39 (research)",
-    "aezeed (research)", "bip85 (research)", "milksad (research)",
-    "lattice (research)", "checksum-prism (research)",
-]
+MODES_ALL = mode_labels()
+SEARCH_PATTERNS = pattern_labels()
+BSGS_STRATEGIES = bsgs_labels()
+MNEMONIC_SUBMODES = mnemonic_submode_labels()
+MNEMONIC_STRATEGIES = mnemonic_strategy_labels()
+WEAKRNG_SUBMODES = weakrng_labels()
+ADDRESS_SUBMODES = address_sub_labels()
+RMD160_SUBMODES = rmd160_sub_labels()
+FILTER_STRATS = filter_labels()
 
 COINS = ["btc", "eth", "ltc", "doge", "xrp", "sol", "bch", "btg", "etc", "troot", "all", "auto"]
 LOOK = ["compress", "uncompress", "both"]
@@ -48,16 +39,30 @@ LANGS = [
 ]
 GPU = ["none", "cuda", "opencl"]
 VECTOR = ["auto", "none", "sse", "avx", "avx2", "avx512"]
-FILTER_STRATS = ["default fuse", "cascade (research)", "bloom-classic", "fuse16 (research)"]
+PATH_PACKS = [
+    "paths-btc (research)", "paths-eth (research)", "paths-electrum (research)",
+    "paths-custom (research)", "account-sweep (research)", "multisig-cosigner (research)",
+]
 
 
 def _live_token(value: str) -> str:
-    """Strip research annotations for CLI emission."""
     return value.split(" (")[0].strip()
 
 
 def is_research(value: str) -> bool:
-    return "(research)" in value.lower() or value in MODES_RESEARCH
+    v = value.lower()
+    return "(research)" in v or _live_token(value) not in MODES_LIVE and value in (
+        "hybrid-dl", "gaudry", "shadow160", "weakrng", "CreateAccountWithSeed",
+    ) or _live_token(value) not in MODES_LIVE and any(
+        _live_token(value) == m for m in [
+            "hybrid-dl", "gaudry", "shadow160", "weakrng", "CreateAccountWithSeed",
+            "hilbert", "sobol", "density-map", "grumpy", "interleave", "orbit",
+            "residue", "dual-range", "nested", "fractal", "async-resolve",
+            "multi-target", "negmap", "handoff", "gravity-giant", "chaos-giant",
+            "sobol-giant", "freeze-table", "compact-dp", "mask", "model",
+            "lastword", "milksad", "electrum-v2", "cascade", "fuse16",
+        ]
+    )
 
 
 @dataclass
@@ -88,27 +93,45 @@ class ColliderConfig:
     mnemonic_eth: bool = False
     derivation_path: str = ""
     derivation_depth: str = "1"
-    mnemonic_submode: str = "random (live)"
+    mnemonic_submode: str = "random"
+    mnemonic_strategy: str = "checksum-first (research)"
     seed_mask: str = ""
     passphrase_file: str = ""
+    model_file: str = ""
+    path_pack: str = "paths-btc (research)"
+    weakrng_sub: str = "milksad (research)"
+    address_sub: str = "default"
+    rmd160_sub: str = "exact"
     filter_strategy: str = "default fuse"
     vector: str = "auto"
     stride: str = ""
     minikey_base: str = ""
+    timestamp_window: str = ""
+    residue_mr: str = ""
+    collision_bits: str = "48"
+    dual_target_file: str = ""
     extra_args: str = ""
     research_notes: list[str] = field(default_factory=list)
 
     def build(self) -> tuple[str, list[str]]:
-        """Return (command_string, research_warnings)."""
         warns: list[str] = []
-        mode = _live_token(self.mode)
-        if is_research(self.mode) or mode not in MODES_LIVE:
+        mode_raw = self.mode
+        mode = _live_token(mode_raw)
+
+        live_fallback = {
+            "hybrid-dl": "bsgs",
+            "gaudry": "kangaroo",
+            "shadow160": "rmd160",
+            "weakrng": "address",
+            "CreateAccountWithSeed": "address",
+        }
+        if mode not in MODES_LIVE:
+            fb = live_fallback.get(mode, "address")
             warns.append(
-                f"Mode '{self.mode}' is a research/planned mode. "
-                "Falling back to nearest live mode 'address' for launch — "
-                "command preview keeps your selection annotated."
+                f"Mode '{mode_raw}' is research. Launch uses live mode '{fb}'. "
+                "Preview keeps your research intent annotated."
             )
-            live_mode = "address"
+            live_mode = fb
         else:
             live_mode = mode
 
@@ -117,8 +140,7 @@ class ColliderConfig:
         if self.target_file:
             parts += ["-f", f'"{self.target_file}"']
         if live_mode in ("address", "rmd160", "vanity", "pubkey2addr"):
-            parts += ["-c", self.coin]
-            parts += ["-l", self.look]
+            parts += ["-c", self.coin, "-l", self.look]
         if self.bits:
             parts += ["-b", self.bits]
         if self.range_start:
@@ -126,17 +148,28 @@ class ColliderConfig:
             if self.range_end:
                 rng = f"{self.range_start}:{self.range_end}"
             parts += ["-r", rng]
+        if self.timestamp_window:
+            # -T is unix timestamp in TrueCollider; accept start or start:end note
+            ts = self.timestamp_window.split(":")[0].strip()
+            if ts.isdigit():
+                parts += ["-T", ts]
+                warns.append("Timestamp window end bound is research UI; live -T uses center timestamp.")
 
         pattern = _live_token(self.search_pattern)
-        if is_research(self.search_pattern):
-            warns.append(f"Search pattern '{self.search_pattern}' is research — using 'chaos'.")
+        live_patterns = {"sequential", "random", "chaos", "gravity", "spiral", "reverse", "auto", "rseq"}
+        if pattern not in live_patterns:
+            warns.append(f"Pattern '{self.search_pattern}' is research — using 'chaos'.")
             pattern = "chaos"
         if pattern and pattern != "sequential":
-            parts += ["-x", pattern]
+            if pattern == "rseq":
+                parts.append("-rs")
+            else:
+                parts += ["-x", pattern]
 
         if live_mode == "bsgs":
             bstrat = _live_token(self.bsgs_strategy)
-            if is_research(self.bsgs_strategy):
+            live_b = {"sequential", "backward", "both", "random", "dance"}
+            if bstrat not in live_b:
                 warns.append(f"BSGS strategy '{self.bsgs_strategy}' is research — using 'random'.")
                 bstrat = "random"
             parts += ["-B", bstrat]
@@ -146,6 +179,8 @@ class ColliderConfig:
                 parts += ["-n", self.n_table]
             if self.save_bloom:
                 parts.append("-S")
+            if self.residue_mr:
+                warns.append(f"Residue M:R '{self.residue_mr}' is research (Gaudry/ResidueHerd).")
 
         if live_mode == "vanity" and self.vanity:
             parts += ["-v", self.vanity]
@@ -153,11 +188,12 @@ class ColliderConfig:
             parts += ["-C", self.minikey_base]
 
         if live_mode == "mnemonic":
-            sub = self.mnemonic_submode
-            if is_research(sub) or not sub.startswith("random"):
+            sub = _live_token(self.mnemonic_submode)
+            if sub != "random":
                 warns.append(
-                    f"Mnemonic submode '{sub}' is planned research UI. "
-                    "Live binary currently runs random BIP-39; mask/pass fields are saved for future kernels."
+                    f"Mnemonic submode '{self.mnemonic_submode}' + strategy "
+                    f"'{self.mnemonic_strategy}' are research. Live binary runs random BIP-39; "
+                    "mask/pass/model fields are preserved in the annotation."
                 )
             if self.mnemonic_words:
                 parts += ["-w", self.mnemonic_words]
@@ -167,11 +203,31 @@ class ColliderConfig:
                 parts.append("-W")
             if self.derivation_depth:
                 parts += ["-D", self.derivation_depth]
+            if self.seed_mask:
+                warns.append(f"Seed mask stored for future kernel: {self.seed_mask[:80]}")
+            if self.passphrase_file:
+                warns.append(f"Passphrase file queued: {self.passphrase_file}")
+            if self.model_file:
+                warns.append(f"Model constraints queued: {self.model_file}")
+            if self.path_pack:
+                warns.append(f"Path pack intent: {self.path_pack}")
+            if self.dual_target_file:
+                warns.append(f"DualTarget anchor file: {self.dual_target_file}")
 
         if self.derivation_path and live_mode in ("address", "rmd160"):
             parts += ["-p", f'"{self.derivation_path}"']
             if self.derivation_depth:
                 parts += ["-D", self.derivation_depth]
+
+        if live_mode == "rmd160":
+            rsub = _live_token(self.rmd160_sub)
+            if rsub != "exact":
+                warns.append(f"RMD160 submode '{self.rmd160_sub}' is research.")
+            if rsub == "shadow160" or mode == "shadow160":
+                warns.append(f"Shadow160 collision bits intent: {self.collision_bits}")
+
+        if mode == "weakrng" or live_mode == "address" and "weakrng" in mode_raw:
+            warns.append(f"CrystalPRNG / weakrng submode: {self.weakrng_sub}")
 
         if self.endomorphism and live_mode in ("address", "rmd160", "vanity"):
             parts.append("-e")
@@ -191,15 +247,25 @@ class ColliderConfig:
             parts += ["-s", self.stats]
         if self.dry_run:
             parts.append("-y")
-        if is_research(self.filter_strategy):
+
+        fstrat = _live_token(self.filter_strategy)
+        if fstrat not in ("default fuse", "default", "bloom-classic"):
             warns.append(f"Filter strategy '{self.filter_strategy}' is research — binary uses default fuse.")
+        if self.address_sub and _live_token(self.address_sub) not in ("default", "hd-fanout"):
+            warns.append(f"Address submode '{self.address_sub}' is research.")
+
         if self.extra_args.strip():
             parts.append(self.extra_args.strip())
 
-        # Annotate research intent in comment form for copy/paste notebooks
         cmd = " ".join(parts)
-        if self.mode != live_mode or is_research(self.mnemonic_submode):
-            cmd += f"  REM research-intent: mode={self.mode} mnemonic={self.mnemonic_submode}"
+        intent = (
+            f" REM research-intent: mode={mode_raw} pattern={self.search_pattern} "
+            f"bsgs={self.bsgs_strategy} mnemonic={self.mnemonic_submode}/{self.mnemonic_strategy} "
+            f"weakrng={self.weakrng_sub} addr={self.address_sub} rmd={self.rmd160_sub} "
+            f"filter={self.filter_strategy} pathpack={self.path_pack}"
+        )
+        if warns:
+            cmd += intent
         return cmd, warns
 
 
@@ -209,7 +275,7 @@ class MkeyConfig:
     ckeys: str = ""
     mkeys: str = ""
     pubkeys: str = ""
-    mode: str = "random"  # random / sequential / mixed
+    mode: str = "random"
     start_key: str = ""
     device: str = "0"
     grid: str = "256,256"
@@ -285,6 +351,7 @@ def explain_flag(flag: str) -> str:
         "-D": "Derivation index depth.",
         "-p": "BIP-32 derivation path (address/rmd160).",
         "-v": "Vanity prefix.",
+        "-T": "Unix timestamp window center for timestamp-key hunts.",
         "-y": "Dry-run config dump.",
         "-q": "Quiet stats.",
         "-ckeys": "TrueMkeyCollider encrypted ckey file.",
