@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import threading
+import time
 from collections.abc import Callable
 from typing import Optional
+
+# Windows: kill entire tree spawned by shell=True (cmd.exe -> keyhunt.exe)
+_CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+_CREATE_NEW_PROCESS_GROUP = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 
 
 class ProcessRunner:
@@ -16,6 +22,8 @@ class ProcessRunner:
         self.proc: Optional[subprocess.Popen] = None
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
+        self._stopping = False
+        self._generation = 0  # bump on each start/stop to ignore stale pump callbacks
 
     @property
     def running(self) -> bool:
@@ -38,19 +46,23 @@ class ProcessRunner:
                 self.on_done(-1)
                 return
 
+            # Ensure any orphaned previous tree is gone before starting again
+            self._kill_proc_tree(self.proc)
+            self.proc = None
+            self._stopping = False
+            self._generation += 1
+            gen = self._generation
+
             self.on_line(f"$ {command}\n")
             if cwd:
                 self.on_line(f"[TrueNexus] cwd: {cwd}\n")
 
             env = os.environ.copy()
             env["PYTHONUNBUFFERED"] = "1"
-            # Encourage C runtime line buffering where supported
-            env["NSUNBUFFERED"] = "1"
 
             creationflags = 0
             if os.name == "nt":
-                # Avoid freezing GUI on Ctrl handlers; keep a console-less child
-                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                creationflags = _CREATE_NO_WINDOW | _CREATE_NEW_PROCESS_GROUP
 
             try:
                 self.proc = subprocess.Popen(
@@ -61,7 +73,7 @@ class ProcessRunner:
                     stderr=subprocess.STDOUT,
                     stdin=subprocess.PIPE,
                     env=env,
-                    bufsize=0,  # unbuffered binary
+                    bufsize=0,
                     creationflags=creationflags,
                 )
             except Exception as exc:
@@ -70,19 +82,24 @@ class ProcessRunner:
                 self.on_done(-1)
                 return
 
+            proc = self.proc
+
             def _pump() -> None:
-                assert self.proc is not None
                 code = -1
                 try:
-                    assert self.proc.stdout is not None
+                    assert proc.stdout is not None
                     buf = b""
                     while True:
-                        chunk = self.proc.stdout.read(256)
+                        if self._stopping and self._generation != gen:
+                            break
+                        chunk = proc.stdout.read(256)
                         if not chunk:
                             break
+                        # Drop output after stop so console doesn't look "alive"
+                        if self._stopping:
+                            continue
                         buf += chunk
                         while b"\n" in buf or b"\r" in buf:
-                            # Prefer newline; also flush bare CR progress lines
                             if b"\n" in buf:
                                 line, buf = buf.split(b"\n", 1)
                                 text = line.decode("utf-8", errors="replace").rstrip("\r") + "\n"
@@ -90,22 +107,33 @@ class ProcessRunner:
                                 line, buf = buf.split(b"\r", 1)
                                 text = line.decode("utf-8", errors="replace") + "\r"
                             if text.strip("\r\n"):
-                                self.on_line(text if text.endswith("\n") or text.endswith("\r") else text + "\n")
-                    if buf.strip():
+                                self.on_line(
+                                    text if text.endswith("\n") or text.endswith("\r") else text + "\n"
+                                )
+                    if buf.strip() and not self._stopping:
                         self.on_line(buf.decode("utf-8", errors="replace") + "\n")
                 except Exception as exc:
-                    self.on_line(f"[TrueNexus] Reader error: {exc}\n")
+                    if not self._stopping:
+                        self.on_line(f"[TrueNexus] Reader error: {exc}\n")
                 finally:
                     try:
-                        code = self.proc.wait(timeout=5)
+                        code = proc.wait(timeout=3)
                     except Exception:
+                        self._kill_proc_tree(proc)
                         try:
-                            self.proc.kill()
-                            code = self.proc.wait(timeout=3)
+                            code = proc.wait(timeout=3)
                         except Exception:
                             code = -1
-                    self.on_line(f"\n[TrueNexus] Process exited with code {code}\n")
-                    self.on_done(code)
+                    if self._generation == gen:
+                        if self._stopping:
+                            self.on_line("\n[TrueNexus] Stopped.\n")
+                            self.on_done(code if code is not None else -1)
+                        else:
+                            self.on_line(f"\n[TrueNexus] Process exited with code {code}\n")
+                            self.on_done(code)
+                        with self._lock:
+                            if self.proc is proc:
+                                self.proc = None
 
             self._thread = threading.Thread(target=_pump, daemon=True, name="TrueNexus-runner")
             self._thread.start()
@@ -121,16 +149,86 @@ class ProcessRunner:
             self.on_line(f"[TrueNexus] stdin error: {exc}\n")
 
     def stop(self) -> None:
-        proc = self.proc
-        if not proc:
+        with self._lock:
+            proc = self.proc
+            if not proc and not self.running:
+                self.on_line("[TrueNexus] Nothing running.\n")
+                return
+            self._stopping = True
+            self._generation += 1  # invalidate pump "still running" output
+            self.on_line("[TrueNexus] Stop requested — killing process tree...\n")
+
+        self._kill_proc_tree(proc)
+
+        # Hard fallback: stop known engine binaries that may have detached
+        if os.name == "nt":
+            for image in ("keyhunt.exe", "keyhunt_cuda.exe", "TrueMkeyCollider.exe"):
+                try:
+                    subprocess.run(
+                        ["taskkill", "/F", "/IM", image],
+                        capture_output=True,
+                        creationflags=_CREATE_NO_WINDOW,
+                        timeout=8,
+                    )
+                except Exception:
+                    pass
+
+        # Give Windows a moment, then clear handle
+        time.sleep(0.15)
+        with self._lock:
+            if self.proc is not None and self.proc.poll() is not None:
+                self.proc = None
+            elif self.proc is not None:
+                try:
+                    self.proc.kill()
+                except Exception:
+                    pass
+                self.proc = None
+
+        self.on_line("[TrueNexus] Stop complete.\n")
+        self._status_done_safe(-1)
+
+    def _status_done_safe(self, code: int) -> None:
+        try:
+            self.on_done(code)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _kill_proc_tree(proc: Optional[subprocess.Popen]) -> None:
+        if proc is None:
             return
-        self.on_line("[TrueNexus] Stop requested.\n")
-        try:
-            proc.terminate()
-        except Exception:
-            pass
-        try:
-            if proc.poll() is None:
+        pid = getattr(proc, "pid", None)
+        if not pid:
+            return
+        if os.name == "nt":
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    capture_output=True,
+                    creationflags=_CREATE_NO_WINDOW,
+                    timeout=10,
+                )
+            except Exception:
+                pass
+            try:
                 proc.kill()
+            except Exception:
+                pass
+            return
+        # POSIX: kill process group if possible
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGTERM)
         except Exception:
-            pass
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+        time.sleep(0.2)
+        try:
+            os.killpg(os.getpgid(pid), signal.SIGKILL)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
