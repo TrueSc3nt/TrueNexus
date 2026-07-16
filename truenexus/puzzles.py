@@ -5,14 +5,19 @@ Range for puzzle N is [2^(N-1) .. 2^N - 1] (N-bit keyspace).
 
 from __future__ import annotations
 
-from truenexus.puzzle_addresses import KNOWN_ADDR
+from truenexus.puzzle_addresses import KNOWN_ADDR, PUZZLE_STATUS
+
+# Canonical public table:
+# https://privatekeys.pw/puzzles/bitcoin-puzzle-tx
 
 __all__ = [
     "KNOWN_ADDR",
+    "PUZZLE_STATUS",
     "puzzle_range_hex",
     "puzzle_range_display",
     "puzzle_label",
     "puzzle_short_label",
+    "puzzle_status",
     "all_puzzle_labels",
     "all_puzzle_short_labels",
     "parse_puzzle_number",
@@ -36,12 +41,16 @@ def puzzle_range_display(n: int) -> str:
     return f"0x{start} .. 0x{end}"
 
 
+def puzzle_status(n: int) -> str:
+    return PUZZLE_STATUS.get(n, "?")
+
+
 def puzzle_label(n: int) -> str:
-    start, end = puzzle_range_hex(n)
     addr = KNOWN_ADDR.get(n)
+    st = puzzle_status(n)
     if addr:
-        return f"#{n:03d}  |  {n}-bit  |  {addr}"
-    return f"#{n:03d}  |  {n}-bit  |  {puzzle_range_display(n)}"
+        return f"#{n:03d}  |  {n}-bit  |  {st}  |  {addr}"
+    return f"#{n:03d}  |  {n}-bit  |  {st}  |  {puzzle_range_display(n)}"
 
 
 def puzzle_short_label(n: int) -> str:

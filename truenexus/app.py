@@ -51,6 +51,7 @@ from truenexus.puzzles import (
     puzzle_label,
     puzzle_range_display,
     puzzle_range_hex,
+    puzzle_status,
     recommend_mode,
     write_puzzle_target_file,
 )
@@ -660,9 +661,12 @@ class TrueNexusApp(ctk.CTk):
             pass
         start, end = puzzle_range_hex(n)
         addr = KNOWN_ADDR.get(n, "(missing address)")
+        st = puzzle_status(n)
         txt = (
             f"{puzzle_label(n)}\n"
-            f"Bits: {n}\n"
+            f"Source: https://privatekeys.pw/puzzles/bitcoin-puzzle-tx\n"
+            f"Status: {st}\n"
+            f"Bits: {n}   (keyspace 2^{n-1} .. 2^{n}-1)\n"
             f"Range: {puzzle_range_display(n)}\n"
             f"CLI:  -b {n}   or   -r {start}:{end}\n"
             f"Address: {addr}\n"
