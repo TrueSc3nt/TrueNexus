@@ -1,0 +1,3 @@
+# Sample encrypted mkey (same validation: last AES block vs PKCS#7 padding)
+# Example mkey from crackBTCwallet README (load for multi-target odds):
+6638b43ae50d0e3d08d8e88928722b5768d8a172e7178fc67f587b4be5d6d22d5df78f23ca0a59d5d28c95d2b5d59dae

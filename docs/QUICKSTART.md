@@ -3,7 +3,8 @@
 1. Install Python 3.10+  
 2. `pip install -r requirements.txt`  
 3. Double-click `Launch_TrueNexus.bat`  
-4. **Settings** → browse to your `keyhunt.exe` / `keyhunt_cuda.exe` and `TrueMkeyCollider.exe`  
+4. Binaries ship under `tools\TrueCollider` and `tools\TrueMkeyCollider` (auto-detected).  
+   Rebuild elsewhere? Run `Sync_Tools.bat` to refresh.  
 5. **Puzzles** → pick a puzzle → Apply → Preview → Launch  
 
 Telegram: https://t.me/TrueScent  

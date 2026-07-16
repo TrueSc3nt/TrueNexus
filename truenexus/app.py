@@ -59,16 +59,41 @@ from truenexus.themes import DEFAULT_THEME, THEMES
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "presets" / "user_settings.json"
 LOG_DIR = ROOT / "logs"
+TOOLS_DIR = ROOT / "tools"
 
 
 def _default_paths() -> dict:
-    home = Path.home()
-    desktop = home / "Desktop"
+    """Prefer bundled tools/ next to TrueNexus; fall back to Desktop copies."""
+    collider = TOOLS_DIR / "TrueCollider"
+    mkey = TOOLS_DIR / "TrueMkeyCollider"
+    desktop = Path.home() / "Desktop"
+
+    def pick(*candidates: Path) -> str:
+        for p in candidates:
+            if p.is_file():
+                return str(p.resolve())
+        return str(candidates[0])
+
+    tc_exe = pick(
+        collider / "keyhunt.exe",
+        desktop / "updayingkeyunt" / "TrueCollider-master" / "keyhunt.exe",
+    )
+    tc_cuda = pick(
+        collider / "keyhunt_cuda.exe",
+        desktop / "updayingkeyunt" / "TrueCollider-master" / "keyhunt_cuda.exe",
+    )
+    mk_exe = pick(
+        mkey / "TrueMkeyCollider.exe",
+        desktop / "TrueMkeyCollider" / "TrueMkeyCollider.exe",
+    )
+    workdir = collider if collider.is_dir() else (
+        desktop / "updayingkeyunt" / "TrueCollider-master"
+    )
     return {
-        "truecollider_exe": str(desktop / "updayingkeyunt" / "TrueCollider-master" / "keyhunt.exe"),
-        "truecollider_cuda": str(desktop / "updayingkeyunt" / "TrueCollider-master" / "keyhunt_cuda.exe"),
-        "truemkey_exe": str(desktop / "TrueMkeyCollider" / "TrueMkeyCollider.exe"),
-        "workdir": str(desktop / "updayingkeyunt" / "TrueCollider-master"),
+        "truecollider_exe": tc_exe,
+        "truecollider_cuda": tc_cuda,
+        "truemkey_exe": mk_exe,
+        "workdir": str(workdir.resolve()) if workdir.exists() else str(collider),
         "theme": DEFAULT_THEME,
     }
 
@@ -94,7 +119,10 @@ class TrueNexusApp(ctk.CTk):
             f"Telegram: {__telegram__}\n"
             f"Donate BTC: {__donate_btc__}\n"
             f"Tools: TrueCollider · TrueMkeyCollider\n"
-            "Tip: use Dry-Run before long GPU jobs. Research modes show in menus but map to live flags until kernels ship.\n\n"
+            f"Bundled tools dir: {TOOLS_DIR}\n"
+            f"  keyhunt: {self.settings.get('truecollider_exe')}\n"
+            f"  mkey:    {self.settings.get('truemkey_exe')}\n"
+            "Tip: use Dry-Run before long GPU jobs. Run Sync_Tools.bat after rebuilding binaries.\n\n"
         )
 
     # ── theme / settings ────────────────────────────────────────────────
@@ -222,7 +250,9 @@ class TrueNexusApp(ctk.CTk):
         return ctk.CTkScrollableFrame(parent, fg_color="transparent")
 
     def _label(self, parent, text: str, **kw):
-        return ctk.CTkLabel(parent, text=text, anchor="w", text_color=self.theme["text"], **kw)
+        kw.setdefault("text_color", self.theme["text"])
+        kw.setdefault("anchor", "w")
+        return ctk.CTkLabel(parent, text=text, **kw)
 
     def _section(self, parent, title: str):
         self._label(parent, title, font=ctk.CTkFont(size=18, weight="bold"),

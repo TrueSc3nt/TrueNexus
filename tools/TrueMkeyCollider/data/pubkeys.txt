@@ -1,0 +1,3 @@
+# Companion pubkeys (optional). One compressed/uncompressed pubkey hex per line,
+# paired by order with -ckeys entries that lack an inline pubkey column.
+0382ca08ce78b0935099c74db12873a7dc1cba10a44165ce8cc1d0602f49ee97f5

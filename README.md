@@ -74,9 +74,9 @@ python -m truenexus
 ### Point the GUI at your binaries
 
 1. Open the **Settings** tab  
-2. Browse to `keyhunt.exe` / `keyhunt_cuda.exe` (TrueCollider build)  
-3. Browse to `TrueMkeyCollider.exe`  
-4. Set working directory (usually your TrueCollider folder with `tests\`)  
+2. Binaries are bundled under `tools\TrueCollider\` and `tools\TrueMkeyCollider\` (auto-wired)  
+3. Optional: run `Sync_Tools.bat` after rebuilding either tool elsewhere  
+4. Working directory defaults to `tools\TrueCollider` (includes `tests\`)  
 5. **Save Settings**
 
 ---

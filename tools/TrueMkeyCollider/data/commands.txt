@@ -1,0 +1,6 @@
+# crackBTCwallet-style command file (compatible load lines)
+# Optional pubkey after enc hex enables auto IV→WIF on hit
+set quiet 1
+load ckey 2e24da42feb389aab372163cac88c5b9233d6f1a2e6bcb4e8337dfa21f0aa85309fa70c00637474a88b0d881c4d93155 0382ca08ce78b0935099c74db12873a7dc1cba10a44165ce8cc1d0602f49ee97f5
+load mkey 6638b43ae50d0e3d08d8e88928722b5768d8a172e7178fc67f587b4be5d6d22d5df78f23ca0a59d5d28c95d2b5d59dae
+start
