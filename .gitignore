@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+logs/*.log
+presets/user_settings.json
+.DS_Store
+Thumbs.db
+*.exe
+*.pdb
+.idea/
+.vscode/
