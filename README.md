@@ -29,6 +29,7 @@ Serious recovery and puzzle work dies in a mess of `.bat` files, forgotten flags
 | For beginners | For professionals |
 |---------------|-------------------|
 | Puzzle #1–160 entry + slider (exact bit ranges) | Exact flag control for every live mode |
+| **Directory** tab — howto for every mode/flag/setting | Dedicated lab tab per idea group |
 | Dry-run before you burn GPU hours | Embedded console with copy / paste / stop |
 | Plain-language mode advisor | Research Labs + live recovery / BSGS implants |
 | Editable Settings (paths, threads, GPU) | Themes, presets, PathNova packs, HerdHandoff |
@@ -211,8 +212,10 @@ For others, supply your own `-f` target file.
 
 TrueNexus embeds **every idea** from the TrueCollider improvement research matrix — **nothing omitted**:
 
-- **225+ catalog entries** across 20 sections (Ideas Matrix filter: ALL / live / research / notes)
-- Tabs: **Ideas Matrix · Roadmap (P0–P3) · Recipes · Full Ideas Doc** (complete markdown mirror)
+- **400+ Directory entries** — searchable howto for every mode, flag, lab, and catalog idea
+- **14 dedicated Idea Lab tabs** (Passphrase, PathNova, Kangaroo, Shadow160, Patterns, Filters, Vanity, Algorithms, GPU, Multi-coin, BSGS Strategies, Address Subs, WeakRNG Full, Research 2026)
+- **298+ Ideas Matrix cards** (LIVE / GAP / NOVEL / RESEARCH / ANTI)
+- Tabs: **Directory · Idea Labs · Ideas Matrix · Roadmap · Recipes · Full Ideas Doc**
 - Dropdowns cover all modes, patterns, BSGS (+ impl notes), mnemonic recovery/passphrase/ecosystems/path packs/strategies, WeakRNG, address & rmd160, filters, cross-cutting, anti-ideas, sources
 - Extra fields: `-N` balance, HerdHandoff `-H`, density-map file, funded snapshot, known mnemonic, pass-mask, rules file, dual-range, freeze-table, batched-gpu-giants, change-chain, BIP-86
 - **Live** → real flags today · **Research** → selectable + annotated previews · **Notes** → gaps/anti-ideas/sources documented in-UI

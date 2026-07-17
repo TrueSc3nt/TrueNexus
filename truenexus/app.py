@@ -46,6 +46,8 @@ from truenexus.ideas_catalog import (
     completeness_report,
 )
 from truenexus.builders import RECIPES as RECIPE_LABELS
+from truenexus.directory import directory_stats, format_entry, search_directory
+from truenexus.idea_labs import LAB_SPECS, lab_labels
 from truenexus.puzzles import (
     KNOWN_ADDR,
     KNOWN_PUBKEYS,
@@ -220,19 +222,47 @@ class TrueNexusApp(ctk.CTk):
         body.grid_rowconfigure(0, weight=1)
 
         # Sidebar nav (replaces squashed horizontal CTkTabview strip)
+        # Sidebar nav — Core · Labs · Tools · Docs
         nav_names = (
-            "Home", "TrueCollider", "Puzzles", "Mnemonic Lab", "BSGS Lab",
-            "Address / RMD160", "WeakRNG Lab", "TrueMkey", "Address Watch",
-            "Ideas Matrix", "Roadmap", "Recipes", "Full Ideas Doc", "Settings", "About",
+            "Home",
+            "Directory",
+            "TrueCollider",
+            "Puzzles",
+            "Mnemonic Lab",
+            "Passphrase Lab",
+            "PathNova Lab",
+            "BSGS Lab",
+            "BSGS Strategies",
+            "Kangaroo Lab",
+            "Address / RMD160",
+            "Address Subs",
+            "Shadow160 Lab",
+            "Patterns Lab",
+            "Filters Lab",
+            "WeakRNG Lab",
+            "WeakRNG Full",
+            "Vanity Lab",
+            "Algorithms Lab",
+            "GPU Lab",
+            "Multi-coin Lab",
+            "Research 2026",
+            "TrueMkey",
+            "Address Watch",
+            "Ideas Matrix",
+            "Roadmap",
+            "Recipes",
+            "Full Ideas Doc",
+            "Settings",
+            "About",
         )
-        sidebar = ctk.CTkFrame(body, fg_color=self.theme["card"], width=200, corner_radius=10)
+        sidebar = ctk.CTkFrame(body, fg_color=self.theme["card"], width=220, corner_radius=10)
         sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, 8))
         sidebar.grid_propagate(False)
         ctk.CTkLabel(
             sidebar, text="NAV", font=ctk.CTkFont(size=12, weight="bold"),
             text_color=self.theme["muted"],
         ).pack(anchor="w", padx=14, pady=(12, 6))
-        nav_scroll = ctk.CTkScrollableFrame(sidebar, fg_color="transparent", width=180)
+        nav_scroll = ctk.CTkScrollableFrame(sidebar, fg_color="transparent", width=200)
         nav_scroll.pack(fill="both", expand=True, padx=6, pady=(0, 10))
 
         content_host = ctk.CTkFrame(body, fg_color=self.theme["card"], corner_radius=10)
@@ -277,12 +307,14 @@ class TrueNexusApp(ctk.CTk):
             self._nav_buttons[name] = btn
 
         self._build_home()
+        self._build_directory()
         self._build_collider()
         self._build_puzzles()
         self._build_mnemonic()
         self._build_bsgs()
         self._build_address()
         self._build_weakrng()
+        self._build_idea_labs()  # Passphrase, PathNova, Kangaroo, Shadow160, …
         self._build_mkey()
         self._build_watch()
         self._build_ideas()
@@ -396,16 +428,18 @@ class TrueNexusApp(ctk.CTk):
             "TrueNexus is the professional control surface for TrueScent's open tooling.\n\n"
             "• TrueCollider — multi-coin key / seed / BSGS / kangaroo hunter (CPU SIMD + CUDA/OpenCL)\n"
             "• TrueMkeyCollider — CUDA AES cracker for Bitcoin Core wallet.dat mkey/ckey blobs\n"
-            "• Research Labs — every idea from the improvement matrix, exposed as dropdowns\n\n"
-            "New users: start on the Puzzles tab → pick Puzzle #66 → Dry-Run → Launch.\n"
-            "Pros: jump to BSGS Lab / Mnemonic Lab / TrueMkey and craft exact flags.\n"
+            "• Idea Labs — every idea group has its own tab (Mnemonic, Passphrase, Kangaroo, …)\n"
+            "• Directory — how to use EVERY mode, flag, and setting\n\n"
+            "New users: open Directory → search your goal, or Puzzles → #66 → Dry-Run → Launch.\n"
+            "Pros: jump straight to the lab tab for that algorithm, then Preview on TrueCollider.\n"
             "Everyone: the console on the right is a real shell — copy, paste, run, stop."
         )
         self._label(f, blurb, justify="left").pack(anchor="w", pady=4)
         btns = ctk.CTkFrame(f, fg_color="transparent")
         btns.pack(anchor="w", pady=12)
-        ctk.CTkButton(btns, text="Open TrueCollider Repo", command=lambda: self._open_url(__truecollider__),
+        ctk.CTkButton(btns, text="Open Directory", command=lambda: self.tabs.set("Directory"),
                       fg_color=self.theme["accent"], text_color="#111").pack(side="left", padx=4)
+        ctk.CTkButton(btns, text="Open TrueCollider Repo", command=lambda: self._open_url(__truecollider__)).pack(side="left", padx=4)
         ctk.CTkButton(btns, text="Open TrueMkey Repo", command=lambda: self._open_url(__truemkey__)).pack(side="left", padx=4)
         ctk.CTkButton(btns, text="Quick Puzzle 66", command=self._quick_puzzle66).pack(side="left", padx=4)
 
@@ -477,6 +511,11 @@ class TrueNexusApp(ctk.CTk):
         self.tc_stats = self._entry(opts, "Stats sec (-s)", "10", 2, 1)
         self.tc_vanity = self._entry(opts, "Vanity (-v)", "", 3, 0)
         self.tc_extra = self._entry(opts, "Extra args", "", 3, 1)
+        self.tc_stride = self._entry(opts, "Stride (-I)", "", 4, 0)
+        self.tc_time = self._entry(opts, "Time window (-T)", "", 4, 1)
+        self.tc_collision = self._entry(opts, "Shadow bits", "48", 5, 0)
+        self.tc_filter = self._dropdown(opts, "Filter (-F)", FILTER_STRATS, "default fuse", 5, 1)
+        self.tc_words = self._entry(opts, "Words (-w)", "12", 6, 0)
 
         flags = ctk.CTkFrame(f, fg_color="transparent")
         flags.pack(fill="x", pady=4)
@@ -707,8 +746,11 @@ class TrueNexusApp(ctk.CTk):
             if hasattr(self, "bsgs_k") else "auto",
             n_table=getattr(self, "bsgs_n", ctk.StringVar(value="")).get()
             if hasattr(self, "bsgs_n") else "",
-            mnemonic_words=getattr(self, "mn_words", ctk.StringVar(value="12")).get()
-            if hasattr(self, "mn_words") else "12",
+            mnemonic_words=(
+                (self.mn_words.get() if hasattr(self, "mn_words") else "")
+                or (self.tc_words.get().strip() if hasattr(self, "tc_words") else "")
+                or "12"
+            ),
             mnemonic_lang=getattr(self, "mn_lang", ctk.StringVar(value="english")).get()
             if hasattr(self, "mn_lang") else "english",
             mnemonic_eth=bool(self.mn_eth.get()) if hasattr(self, "mn_eth") else False,
@@ -731,14 +773,26 @@ class TrueNexusApp(ctk.CTk):
                 self.mn_depth.get() if hasattr(self, "mn_depth") and self.tc_mode.get().startswith("mnemonic")
                 else (self.addr_depth.get() if hasattr(self, "addr_depth") else "1")
             ),
-            filter_strategy=self.addr_filter.get() if hasattr(self, "addr_filter") else "default fuse",
+            filter_strategy=(
+                self.tc_filter.get() if hasattr(self, "tc_filter")
+                else (self.addr_filter.get() if hasattr(self, "addr_filter") else "default fuse")
+            ),
             address_sub=self.addr_sub.get() if hasattr(self, "addr_sub") else "default",
             rmd160_sub=self.rmd_sub.get() if hasattr(self, "rmd_sub") else "exact",
             weakrng_sub=self.wr_sub.get() if hasattr(self, "wr_sub") else "milksad",
-            timestamp_window=self.wr_ts.get() if hasattr(self, "wr_ts") else "",
+            timestamp_window=(
+                self.tc_time.get().strip() if hasattr(self, "tc_time") and self.tc_time.get().strip()
+                else (self.wr_ts.get() if hasattr(self, "wr_ts") else "")
+            ),
             residue_mr=self.bsgs_mod.get() if hasattr(self, "bsgs_mod") else "",
-            collision_bits=self.shadow_bits.get() if hasattr(self, "shadow_bits") else "48",
-            stride=self.addr_stride.get() if hasattr(self, "addr_stride") else "",
+            collision_bits=(
+                self.tc_collision.get().strip() if hasattr(self, "tc_collision") and self.tc_collision.get().strip()
+                else (self.shadow_bits.get() if hasattr(self, "shadow_bits") else "48")
+            ),
+            stride=(
+                self.tc_stride.get().strip() if hasattr(self, "tc_stride") and self.tc_stride.get().strip()
+                else (self.addr_stride.get() if hasattr(self, "addr_stride") else "")
+            ),
             density_map_file=self.tc_density.get() if hasattr(self, "tc_density") else "",
             funded_file=self.tc_funded.get() if hasattr(self, "tc_funded") else "",
         )
@@ -1228,6 +1282,439 @@ class TrueNexusApp(ctk.CTk):
                     break
         self.tabs.set("Mnemonic Lab")
         self._set_status("Mnemonic Milk Sad / EntropyTimeline selected")
+
+    # ── Directory (how to use everything) ───────────────────────────────
+    def _build_directory(self) -> None:
+        tab = self.tabs.tab("Directory")
+        f = self._scroll(tab)
+        f.pack(fill="both", expand=True)
+        self._section(f, "Directory — how to use every mode, flag & setting")
+        self._label(
+            f,
+            "Search literally everything: modes, -x patterns, -B strategies, CLI flags,\n"
+            "TrueMkey options, GUI tabs, and the full ideas catalog (including Research 2026).\n"
+            "LIVE = works now · GAP/NOVEL/RESEARCH = roadmap · ANTI = refused forever.",
+            text_color=self.theme["muted"],
+        ).pack(anchor="w")
+
+        stats = ctk.CTkTextbox(f, height=70, font=ctk.CTkFont(family="Consolas", size=12))
+        stats.pack(fill="x", pady=4)
+        stats.insert("1.0", directory_stats())
+        stats.configure(state="disabled")
+
+        row = ctk.CTkFrame(f, fg_color="transparent")
+        row.pack(fill="x", pady=6)
+        self.dir_query = ctk.StringVar(value="")
+        ctk.CTkEntry(
+            row, textvariable=self.dir_query, width=420,
+            placeholder_text="Search e.g. kangaroo, -H, pass-mask, hilbert, ANTI…",
+        ).pack(side="left", padx=(0, 8))
+        ctk.CTkButton(
+            row, text="Search", fg_color=self.theme["accent"], text_color="#111",
+            command=self._directory_search,
+        ).pack(side="left", padx=2)
+        ctk.CTkButton(row, text="Show ALL", command=lambda: self._directory_search(show_all=True)).pack(side="left", padx=2)
+        ctk.CTkButton(
+            row, text="Copy results",
+            command=lambda: self._copy_text(self.dir_results.get("1.0", "end")),
+        ).pack(side="left", padx=2)
+
+        cat = ctk.CTkFrame(f, fg_color="transparent")
+        cat.pack(fill="x", pady=4)
+        self._label(cat, "Quick jumps:", text_color=self.theme["muted"]).pack(side="left", padx=(0, 6))
+        for label, q in (
+            ("Modes", "Modes (-m)"),
+            ("Flags", "CLI flags"),
+            ("BSGS", "BSGS"),
+            ("Mnemonic", "Mnemonic"),
+            ("ANTI", "ANTI"),
+            ("GPU", "GPU"),
+            ("GUI", "GUI tabs"),
+        ):
+            ctk.CTkButton(
+                cat, text=label, width=70,
+                command=lambda qq=q: self._directory_jump(qq),
+            ).pack(side="left", padx=2)
+
+        self.dir_results = ctk.CTkTextbox(f, height=480, font=ctk.CTkFont(family="Consolas", size=12))
+        self.dir_results.pack(fill="both", expand=True, pady=6)
+        self.dir_results.insert(
+            "1.0",
+            "Click Show ALL or Search.\n\n"
+            "Tip: type a flag like -m or -H, a mode like shadow160, or a lab name.\n",
+        )
+
+    def _directory_jump(self, query: str) -> None:
+        self.dir_query.set(query)
+        self._directory_search()
+
+    def _directory_search(self, show_all: bool = False) -> None:
+        q = "*" if show_all else (self.dir_query.get() if hasattr(self, "dir_query") else "")
+        hits = search_directory(q)
+        self.dir_results.delete("1.0", "end")
+        if not hits:
+            self.dir_results.insert("1.0", f"No matches for “{q}”. Try Show ALL or a shorter query.\n")
+            return
+        self.dir_results.insert("1.0", f"{len(hits)} match(es) for “{q or '*'}”\n{'=' * 60}\n\n")
+        current_section = None
+        for section, name, status, desc in hits:
+            if section != current_section:
+                current_section = section
+                self.dir_results.insert("end", f"\n## {section}\n{'-' * 40}\n")
+            self.dir_results.insert("end", format_entry(section, name, status, desc) + "\n")
+        self.dir_results.see("1.0")
+        self._set_status(f"Directory: {len(hits)} entries")
+
+    # ── Idea Labs (one tab per idea group) ──────────────────────────────
+    def _build_idea_labs(self) -> None:
+        self._lab_widgets: dict[str, dict] = {}
+        for spec in LAB_SPECS:
+            self._build_one_idea_lab(spec)
+
+    def _build_one_idea_lab(self, spec: dict) -> None:
+        nav = spec["nav"]
+        tab = self.tabs.tab(nav)
+        f = self._scroll(tab)
+        f.pack(fill="both", expand=True)
+        self._section(f, spec["title"])
+        self._label(f, spec["blurb"], text_color=self.theme["muted"], justify="left").pack(anchor="w")
+
+        items = spec["items"]
+        labels = lab_labels(items)
+        desc_map = {lab_labels([it])[0]: it[2] for it in items}
+
+        g = ctk.CTkFrame(f, fg_color="transparent")
+        g.pack(fill="x", pady=8)
+        menu = self._dropdown(g, "Select idea / mode", labels, labels[0], 0, 0)
+        widgets: dict = {"menu": menu, "spec": spec, "desc_map": desc_map}
+
+        # Optional extra fields
+        extras = set(spec.get("extra_fields") or [])
+        row2 = ctk.CTkFrame(f, fg_color="transparent")
+        row2.pack(fill="x", pady=4)
+        r = 0
+        if "handoff_bits" in extras:
+            widgets["handoff"] = self._entry(row2, "Handoff bits (-H)", "44", r, 0)
+            r = 0
+        if "shadow_bits" in extras:
+            widgets["shadow"] = self._entry(row2, "Shadow bits", "48", 0, 1 if "handoff" in widgets else 0)
+        if "vanity" in extras:
+            widgets["vanity"] = self._entry(row2, "Vanity prefix (-v)", "1Cool", 0, 0)
+        if "words" in extras:
+            widgets["words"] = self._entry(row2, "Word count (-w)", "12", 0, 1)
+        if "gpu" in extras:
+            widgets["gpu"] = self._dropdown(row2, "GPU (-U)", GPU, self.settings.get("default_gpu", "none"), 0, 0)
+        if "memory" in extras:
+            widgets["memory"] = self._entry(row2, "Memory (-M)", "auto", 0, 1)
+        if "vector" in extras:
+            widgets["vector"] = self._dropdown(row2, "Vector (-A)", VECTOR, "auto", 1, 0)
+        if "threads" in extras:
+            widgets["threads"] = self._entry(row2, "Threads (-t)", self.settings.get("default_threads", "8"), 1, 1)
+        if "coin" in extras:
+            widgets["coin"] = self._dropdown(row2, "Coin (-c)", COINS, "btc", 0, 0)
+        if "k_factor" in extras:
+            widgets["k_factor"] = self._entry(row2, "K factor (-k)", "auto", 0, 1)
+        if "timestamp" in extras:
+            widgets["timestamp"] = self._entry(row2, "Time window (-T start:end)", "", 0, 0)
+        if "stride" in extras:
+            widgets["stride"] = self._entry(row2, "Stride (-I)", "", 0, 1)
+        if "depth" in extras:
+            widgets["depth"] = self._entry(row2, "Index depth (-D)", "5", 0, 0)
+
+        if "seed" in extras:
+            widgets["seed"] = ctk.StringVar()
+            self._label(f, "Known mnemonic / seed (--seed)", text_color=self.theme["muted"]).pack(anchor="w", pady=(6, 2))
+            ctk.CTkEntry(f, textvariable=widgets["seed"]).pack(fill="x")
+        if "pass_file" in extras:
+            widgets["pass_file"] = ctk.StringVar()
+            self._path_row(f, "Passphrase dictionary", widgets["pass_file"])
+        if "pass_mask" in extras:
+            widgets["pass_mask"] = ctk.StringVar()
+            self._label(f, "Passphrase mask (?l?d…)", text_color=self.theme["muted"]).pack(anchor="w", pady=(6, 2))
+            ctk.CTkEntry(f, textvariable=widgets["pass_mask"], placeholder_text="?l?l?l?d?d").pack(fill="x")
+        if "pass_rules" in extras:
+            widgets["pass_rules"] = ctk.StringVar()
+            self._path_row(f, "Passphrase rules file", widgets["pass_rules"])
+        if "density_map" in extras:
+            widgets["density_map"] = ctk.StringVar()
+            self._path_row(f, "Density map file (--density-map)", widgets["density_map"])
+        if "funded" in extras:
+            widgets["funded"] = ctk.StringVar()
+            self._path_row(f, "Funded snapshot (--funded)", widgets["funded"])
+        if "target" in extras:
+            widgets["target"] = ctk.StringVar()
+            self._path_row(f, "Target file (-f)", widgets["target"])
+        if "change" in extras:
+            widgets["change"] = ctk.CTkCheckBox(f, text="Include change /1/N")
+            widgets["change"].select()
+            widgets["change"].pack(anchor="w", pady=2)
+        if "bip86" in extras:
+            widgets["bip86"] = ctk.CTkCheckBox(f, text="Include BIP-86 Taproot")
+            widgets["bip86"].select()
+            widgets["bip86"].pack(anchor="w", pady=2)
+
+        info = ctk.CTkTextbox(f, height=120)
+        info.pack(fill="x", pady=8)
+        info.insert("1.0", desc_map.get(labels[0], ""))
+        widgets["info"] = info
+
+        def on_pick(val: str, _w=widgets, _dm=desc_map) -> None:
+            _w["info"].delete("1.0", "end")
+            _w["info"].insert("1.0", _dm.get(val, ""))
+
+        menu.configure(command=on_pick)
+
+        # Catalog list
+        self._section(f, f"All items in this lab ({len(items)})")
+        listing = ctk.CTkTextbox(f, height=160, font=ctk.CTkFont(family="Consolas", size=12))
+        listing.pack(fill="x", pady=4)
+        for name, status, desc in items:
+            listing.insert("end", f"[{status.upper():8}] {name:28}  {desc}\n")
+        listing.configure(state="disabled")
+
+        btn = ctk.CTkFrame(f, fg_color="transparent")
+        btn.pack(fill="x", pady=10)
+        ctk.CTkButton(
+            btn, text="Apply → TrueCollider",
+            command=lambda n=nav: self._apply_idea_lab(n),
+        ).pack(side="left", padx=4)
+        ctk.CTkButton(
+            btn, text="Apply + Launch", fg_color=self.theme["accent"], text_color="#111",
+            command=lambda n=nav: self._launch_idea_lab(n),
+        ).pack(side="left", padx=4)
+        ctk.CTkButton(
+            btn, text="Open Directory help",
+            command=lambda: self.tabs.set("Directory"),
+        ).pack(side="left", padx=4)
+
+        self._lab_widgets[nav] = widgets
+
+    def _token(self, label: str) -> str:
+        return (label or "").split(" (")[0].strip()
+
+    def _apply_idea_lab(self, nav: str) -> None:
+        w = self._lab_widgets.get(nav) or {}
+        spec = w.get("spec") or {}
+        kind = spec.get("kind", "")
+        raw = w["menu"].get() if "menu" in w else ""
+        token = self._token(raw)
+        mode = spec.get("default_mode", "address")
+
+        # Map selection → TrueCollider fields
+        if kind == "mnemonic_sub":
+            mode = "mnemonic"
+            if hasattr(self, "mn_sub"):
+                for v in MNEMONIC_SUBMODES:
+                    if self._token(v) == token or token in v:
+                        self.mn_sub.set(v)
+                        break
+            if w.get("seed") and w["seed"].get().strip() and hasattr(self, "mn_known"):
+                self.mn_known.set(w["seed"].get().strip())
+                if hasattr(self, "mn_mask"):
+                    self.mn_mask.set(w["seed"].get().strip())
+            if w.get("pass_file") and hasattr(self, "mn_pass"):
+                self.mn_pass.set(w["pass_file"].get())
+            if w.get("pass_mask") and hasattr(self, "mn_passmask"):
+                self.mn_passmask.set(w["pass_mask"].get())
+            if w.get("pass_rules") and hasattr(self, "mn_rules"):
+                self.mn_rules.set(w["pass_rules"].get())
+
+        elif kind == "path_pack":
+            mode = "mnemonic"
+            if hasattr(self, "mn_pack"):
+                # map paths-btc → btc-std etc.
+                pack_map = {
+                    "paths-btc": "btc-std", "paths-eth": "eth", "paths-electrum": "electrum",
+                    "paths-custom": "custom", "account-sweep": "account-sweep",
+                    "change-chain-1": "btc-std", "bip86-taproot": "btc-std",
+                }
+                pack = pack_map.get(token, token)
+                vals = list(getattr(self.mn_pack, "_values", []) or PATH_PACKS)
+                for v in vals:
+                    if self._token(v) == pack or pack in v:
+                        self.mn_pack.set(v)
+                        break
+            if w.get("change") and hasattr(self, "mn_change"):
+                (self.mn_change.select() if w["change"].get() else self.mn_change.deselect())
+            if w.get("bip86") and hasattr(self, "mn_bip86"):
+                (self.mn_bip86.select() if w["bip86"].get() else self.mn_bip86.deselect())
+            if w.get("depth") and hasattr(self, "mn_depth"):
+                self.mn_depth.set(w["depth"].get())
+
+        elif kind == "kangaroo":
+            if token in ("handoff", "compact-dp"):
+                mode = "bsgs" if token != "kangaroo" else "kangaroo"
+                if token == "handoff":
+                    mode = "hybrid-dl"
+                if hasattr(self, "bsgs_strat"):
+                    for v in getattr(self.bsgs_strat, "_values", []) or []:
+                        if self._token(v) == token or token in v:
+                            self.bsgs_strat.set(v)
+                            break
+            elif token == "hybrid-dl":
+                mode = "hybrid-dl"
+            elif "SOTA" in token or "Multi-GPU" in token:
+                mode = "kangaroo"
+            else:
+                mode = "kangaroo" if token == "kangaroo" else mode
+            if w.get("handoff") and hasattr(self, "tc_handoff"):
+                self.tc_handoff.set(w["handoff"].get())
+            elif w.get("handoff") and hasattr(self, "bsgs_handoff"):
+                try:
+                    self.bsgs_handoff.set(w["handoff"].get())
+                except Exception:
+                    pass
+
+        elif kind == "shadow160":
+            mode = "shadow160" if token in ("shadow160",) or "shadow" in token else "rmd160"
+            if hasattr(self, "tc_collision") or hasattr(self, "rmd_bits"):
+                bits = w["shadow"].get() if w.get("shadow") else "48"
+                if hasattr(self, "tc_collision"):
+                    self.tc_collision.set(bits)
+
+        elif kind == "pattern":
+            if hasattr(self, "tc_pattern"):
+                for v in getattr(self.tc_pattern, "_values", []) or SEARCH_PATTERNS:
+                    if self._token(v) == token or token in v:
+                        self.tc_pattern.set(v)
+                        break
+            if w.get("density_map") and w["density_map"].get().strip():
+                # stash into funded/density if field exists on TC
+                if hasattr(self, "tc_density"):
+                    self.tc_density.set(w["density_map"].get())
+
+        elif kind == "filter":
+            if hasattr(self, "tc_filter"):
+                for v in getattr(self.tc_filter, "_values", []) or FILTER_STRATS:
+                    if self._token(v) == token or token.split()[0] in v:
+                        self.tc_filter.set(v)
+                        break
+
+        elif kind == "vanity":
+            mode = token if token in ("vanity", "poetry", "brainwallet", "minikeys") else "vanity"
+            if w.get("vanity") and hasattr(self, "tc_vanity"):
+                self.tc_vanity.set(w["vanity"].get())
+            if w.get("words") and hasattr(self, "tc_words"):
+                self.tc_words.set(w["words"].get())
+
+        elif kind == "algorithm":
+            algo_map = {
+                "OrbitBSGS": ("bsgs", "orbit"),
+                "HerdHandoff": ("hybrid-dl", "handoff"),
+                "GrumpyBSGS": ("bsgs", "grumpy"),
+                "InterleaveBSGS": ("bsgs", "interleave"),
+                "GaudrySchost / MultiDim-DL": ("gaudry", None),
+                "ResidueHerd": ("gaudry", "residue"),
+                "FuseCascade": ("address", None),
+                "HilbertStride": ("address", None),
+                "SobolWalk": ("address", None),
+                "HaltonWalk": ("address", None),
+                "Shadow160": ("shadow160", None),
+                "CrystalPRNG": ("weakrng", None),
+                "MnemonicLattice": ("mnemonic", None),
+                "ChecksumPrism": ("mnemonic", None),
+                "PathNova": ("mnemonic", None),
+            }
+            mode, bstrat = algo_map.get(token, ("bsgs", None))
+            if "Hilbert" in token or "Sobol" in token or "Halton" in token:
+                pat = "hilbert" if "Hilbert" in token else ("sobol" if "Sobol" in token else "halton")
+                if hasattr(self, "tc_pattern"):
+                    for v in getattr(self.tc_pattern, "_values", []) or []:
+                        if pat in v.lower():
+                            self.tc_pattern.set(v)
+                            break
+            if "FuseCascade" in token and hasattr(self, "tc_filter"):
+                for v in getattr(self.tc_filter, "_values", []) or []:
+                    if "cascade" in v.lower():
+                        self.tc_filter.set(v)
+                        break
+            if bstrat and hasattr(self, "bsgs_strat"):
+                for v in getattr(self.bsgs_strat, "_values", []) or []:
+                    if self._token(v) == bstrat:
+                        self.bsgs_strat.set(v)
+                        break
+            if token == "MnemonicLattice" and hasattr(self, "mn_sub"):
+                for v in MNEMONIC_SUBMODES:
+                    if "lattice" in v:
+                        self.mn_sub.set(v)
+                        break
+
+        elif kind == "gpu":
+            if w.get("gpu") and hasattr(self, "tc_gpu"):
+                self.tc_gpu.set(w["gpu"].get())
+            if w.get("memory") and hasattr(self, "tc_mem"):
+                self.tc_mem.set(w["memory"].get())
+            if w.get("vector") and hasattr(self, "tc_vector"):
+                self.tc_vector.set(w["vector"].get())
+            if w.get("threads") and hasattr(self, "tc_threads"):
+                self.tc_threads.set(w["threads"].get())
+
+        elif kind == "coin":
+            if token in COINS and hasattr(self, "tc_coin"):
+                self.tc_coin.set(token)
+            elif w.get("coin") and hasattr(self, "tc_coin"):
+                self.tc_coin.set(w["coin"].get())
+
+        elif kind == "bsgs_strat":
+            mode = "bsgs"
+            if token == "handoff":
+                mode = "hybrid-dl"
+            if hasattr(self, "bsgs_strat"):
+                for v in getattr(self.bsgs_strat, "_values", []) or BSGS_STRATEGIES:
+                    if self._token(v) == token:
+                        self.bsgs_strat.set(v)
+                        break
+            if w.get("k_factor") and hasattr(self, "bsgs_k"):
+                self.bsgs_k.set(w["k_factor"].get())
+
+        elif kind == "address_sub":
+            mode = "address"
+            if token in ("hilbert", "sobol", "density-map") and hasattr(self, "tc_pattern"):
+                for v in getattr(self.tc_pattern, "_values", []) or []:
+                    if token in v.lower():
+                        self.tc_pattern.set(v)
+                        break
+            if w.get("stride") and hasattr(self, "tc_stride"):
+                self.tc_stride.set(w["stride"].get())
+
+        elif kind == "weakrng":
+            mode = "weakrng"
+            if hasattr(self, "wr_sub"):
+                for v in getattr(self.wr_sub, "_values", []) or WEAKRNG_SUBMODES:
+                    if self._token(v) == token or token in v:
+                        self.wr_sub.set(v)
+                        break
+            if w.get("timestamp") and w["timestamp"].get().strip() and hasattr(self, "tc_time"):
+                self.tc_time.set(w["timestamp"].get().strip())
+
+        elif kind == "research":
+            # Best-effort map research names to live modes
+            low = token.lower()
+            if "kangaroo" in low or "dp " in low:
+                mode = "kangaroo"
+            elif "bsgs" in low or "orbit" in low or "grumpy" in low:
+                mode = "bsgs"
+            elif "mnemonic" in low or "pbkdf" in low or "passphrase" in low or "bip39" in low:
+                mode = "mnemonic"
+            elif "shadow" in low or "hash160" in low:
+                mode = "shadow160"
+            elif "weak" in low or "milk" in low or "profanity" in low:
+                mode = "weakrng"
+            else:
+                mode = "address"
+
+        if w.get("target") and w["target"].get().strip() and hasattr(self, "tc_target"):
+            self.tc_target.set(w["target"].get().strip())
+        if w.get("funded") and w["funded"].get().strip() and hasattr(self, "tc_funded"):
+            self.tc_funded.set(w["funded"].get().strip())
+
+        self._set_tc_mode(mode)
+        self.tabs.set("TrueCollider")
+        self._set_status(f"{nav}: applied “{token}” → mode {mode}")
+
+    def _launch_idea_lab(self, nav: str) -> None:
+        self._apply_idea_lab(nav)
+        self._launch_collider()
 
     # ── TrueMkey ────────────────────────────────────────────────────────
     def _build_mkey(self) -> None:
