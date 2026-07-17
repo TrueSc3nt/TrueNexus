@@ -112,8 +112,8 @@ class TrueNexusApp(ctk.CTk):
     def __init__(self) -> None:
         super().__init__()
         self.title(f"TrueNexus  ·  v{__version__}  ·  by TrueScent")
-        self.geometry("1440x900")
-        self.minsize(1180, 720)
+        self.geometry("1540x920")
+        self.minsize(1280, 760)
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         (ROOT / "presets").mkdir(parents=True, exist_ok=True)
 
@@ -209,18 +209,67 @@ class TrueNexusApp(ctk.CTk):
 
         body = ctk.CTkFrame(self, fg_color="transparent")
         body.grid(row=1, column=0, sticky="nsew", padx=12, pady=8)
-        body.grid_columnconfigure(0, weight=3)
-        body.grid_columnconfigure(1, weight=2)
+        body.grid_columnconfigure(0, weight=0)  # sidebar
+        body.grid_columnconfigure(1, weight=3)  # main pages
+        body.grid_columnconfigure(2, weight=2)  # console
         body.grid_rowconfigure(0, weight=1)
 
-        self.tabs = ctk.CTkTabview(body, fg_color=self.theme["card"], segmented_button_selected_color=self.theme["accent"])
-        self.tabs.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-        for name in (
+        # Sidebar nav (replaces squashed horizontal CTkTabview strip)
+        nav_names = (
             "Home", "TrueCollider", "Puzzles", "Mnemonic Lab", "BSGS Lab",
             "Address / RMD160", "WeakRNG Lab", "TrueMkey", "Ideas Matrix",
             "Roadmap", "Recipes", "Full Ideas Doc", "Settings", "About",
-        ):
+        )
+        sidebar = ctk.CTkFrame(body, fg_color=self.theme["card"], width=200, corner_radius=10)
+        sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, 8))
+        sidebar.grid_propagate(False)
+        ctk.CTkLabel(
+            sidebar, text="NAV", font=ctk.CTkFont(size=12, weight="bold"),
+            text_color=self.theme["muted"],
+        ).pack(anchor="w", padx=14, pady=(12, 6))
+        nav_scroll = ctk.CTkScrollableFrame(sidebar, fg_color="transparent", width=180)
+        nav_scroll.pack(fill="both", expand=True, padx=6, pady=(0, 10))
+
+        content_host = ctk.CTkFrame(body, fg_color=self.theme["card"], corner_radius=10)
+        content_host.grid(row=0, column=1, sticky="nsew", padx=(0, 8))
+        content_host.grid_rowconfigure(0, weight=1)
+        content_host.grid_columnconfigure(0, weight=1)
+
+        self._nav_buttons: dict[str, ctk.CTkButton] = {}
+        self._nav_pages: dict[str, ctk.CTkFrame] = {}
+        self._nav_current = "Home"
+
+        class _TabProxy:
+            """Drop-in for CTkTabview: .tab(name) / .set(name)."""
+
+            def __init__(self, app: "TrueNexusApp") -> None:
+                self._app = app
+
+            def tab(self, name: str) -> ctk.CTkFrame:
+                return self._app._nav_pages[name]
+
+            def set(self, name: str) -> None:
+                self._app._show_nav(name)
+
+            def add(self, name: str) -> None:
+                page = ctk.CTkFrame(content_host, fg_color="transparent")
+                self._app._nav_pages[name] = page
+
+        self.tabs = _TabProxy(self)
+        for name in nav_names:
             self.tabs.add(name)
+            btn = ctk.CTkButton(
+                nav_scroll,
+                text=name,
+                anchor="w",
+                height=34,
+                fg_color="transparent",
+                text_color=self.theme["text"],
+                hover_color=self.theme["fg"],
+                command=lambda n=name: self._show_nav(n),
+            )
+            btn.pack(fill="x", pady=2, padx=4)
+            self._nav_buttons[name] = btn
 
         self._build_home()
         self._build_collider()
@@ -236,10 +285,11 @@ class TrueNexusApp(ctk.CTk):
         self._build_ideas_doc()
         self._build_settings()
         self._build_about()
+        self._show_nav("Home")
 
         # Console column
         cons = ctk.CTkFrame(body, fg_color=self.theme["card"])
-        cons.grid(row=0, column=1, sticky="nsew")
+        cons.grid(row=0, column=2, sticky="nsew")
         cons.grid_rowconfigure(1, weight=1)
         cons.grid_columnconfigure(0, weight=1)
 
@@ -281,6 +331,32 @@ class TrueNexusApp(ctk.CTk):
         # Status bar
         self.status = ctk.CTkLabel(self, text="Ready", anchor="w", text_color=self.theme["muted"])
         self.status.grid(row=2, column=0, sticky="ew", padx=16, pady=(0, 8))
+
+    def _show_nav(self, name: str) -> None:
+        """Switch sidebar page — keeps labels fully readable (no squashed tab strip)."""
+        if name not in self._nav_pages:
+            return
+        for n, page in self._nav_pages.items():
+            page.grid_forget()
+        page = self._nav_pages[name]
+        page.grid(row=0, column=0, sticky="nsew")
+        page.grid_rowconfigure(0, weight=1)
+        page.grid_columnconfigure(0, weight=1)
+        self._nav_current = name
+        for n, btn in self._nav_buttons.items():
+            if n == name:
+                btn.configure(
+                    fg_color=self.theme["accent"],
+                    text_color="#111111",
+                    hover_color=self.theme["accent2"],
+                )
+            else:
+                btn.configure(
+                    fg_color="transparent",
+                    text_color=self.theme["text"],
+                    hover_color=self.theme["fg"],
+                )
+        self._set_status(f"{name}")
 
     def _scroll(self, parent: ctk.CTkFrame) -> ctk.CTkScrollableFrame:
         return ctk.CTkScrollableFrame(parent, fg_color="transparent")
