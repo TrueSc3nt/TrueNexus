@@ -202,8 +202,7 @@ class ColliderConfig:
             if self.residue_mr and ":" in self.residue_mr:
                 m, rem = self.residue_mr.split(":", 1)
                 parts += ["--mod-step", m.strip(), "--mod-rem", rem.strip()]
-            if self.handoff_bits:
-                parts += ["-H", self.handoff_bits]
+            # -H added once below (bsgs / hybrid-dl / kangaroo)
 
         if live_mode == "gaudry" and self.residue_mr and ":" in self.residue_mr:
             m, rem = self.residue_mr.split(":", 1)
@@ -281,8 +280,10 @@ class ColliderConfig:
         if self.threads:
             parts += ["-t", self.threads]
         if self.gpu and self.gpu != "none":
-            # both = CPU threads + GPU backend (engine accepts -U both → cuda hybrid)
-            parts += ["-U", self.gpu]
+            # "both" = CPU threads (-t) + CUDA. Current shipping builds only accept
+            # none/cuda/opencl; map both→cuda so Preview/Launch works until rebuild.
+            backend = "cuda" if self.gpu.strip().lower() == "both" else self.gpu
+            parts += ["-U", backend]
         if self.memory:
             parts += ["-M", self.memory]
         if self.vector and self.vector != "auto":
