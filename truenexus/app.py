@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -124,8 +125,19 @@ class TrueNexusApp(ctk.CTk):
         self.runner = ProcessRunner(self._append_console, self._on_proc_done)
         self._console_q: list[str] = []
         self._status_q: list[str] = []
+        # Buffered console refresh (GPU spam crashed the GUI when flushing every 50ms)
+        try:
+            self._console_refresh_sec = int(self.settings.get("console_refresh_sec", 10))
+        except Exception:
+            self._console_refresh_sec = 10
+        if self._console_refresh_sec not in (5, 10, 15, 20):
+            self._console_refresh_sec = 10
+        self._console_last_flush = 0.0
+        self._console_force_flush = True  # show startup banner immediately
+        self._console_pending_bytes = 0
+        self._console_dropped_note = False
         self._build_ui()
-        self.after(50, self._ui_tick)
+        self.after(200, self._ui_tick)
         self._append_console(
             f"TrueNexus v{__version__} online.\n"
             f"Telegram: {__telegram__}\n"
@@ -134,6 +146,7 @@ class TrueNexusApp(ctk.CTk):
             f"Bundled tools dir: {TOOLS_DIR}\n"
             f"  keyhunt: {self.settings.get('truecollider_exe')}\n"
             f"  mkey:    {self.settings.get('truemkey_exe')}\n"
+            f"Console refresh: every {self._console_refresh_sec}s (change above the console for GPU runs).\n"
             "Tip: use Dry-Run before long GPU jobs. Edit Settings anytime — Save persists paths.\n"
             "Console Run executes shell commands in the workdir. Stop cancels the child process.\n\n"
         )
@@ -237,7 +250,17 @@ class TrueNexusApp(ctk.CTk):
         ctk.CTkButton(topc, text="Copy All", width=80, command=self._copy_console).pack(side="right", padx=2)
         ctk.CTkButton(topc, text="Clear", width=70, command=self._clear_console).pack(side="right", padx=2)
         ctk.CTkButton(topc, text="Stop", width=70, fg_color=self.theme["danger"],
-                      command=self.runner.stop).pack(side="right", padx=2)
+                      command=self._stop_and_flush).pack(side="right", padx=2)
+        ctk.CTkButton(topc, text="Refresh now", width=100, command=self._refresh_console_now).pack(side="right", padx=2)
+        self.console_refresh = ctk.CTkOptionMenu(
+            topc,
+            values=["5 sec", "10 sec", "15 sec", "20 sec"],
+            width=90,
+            command=self._on_console_refresh,
+        )
+        self.console_refresh.set(f"{self._console_refresh_sec} sec")
+        self.console_refresh.pack(side="right", padx=4)
+        ctk.CTkLabel(topc, text="Refresh", text_color=self.theme["muted"]).pack(side="right", padx=(8, 2))
 
         self.console = ctk.CTkTextbox(
             cons, font=ctk.CTkFont(family="Consolas", size=13),
@@ -1227,6 +1250,7 @@ class TrueNexusApp(ctk.CTk):
         self.set_wd = ctk.StringVar(value=self.settings.get("workdir", ""))
         self.set_threads = ctk.StringVar(value=str(self.settings.get("default_threads", "8")))
         self.set_gpu = ctk.StringVar(value=str(self.settings.get("default_gpu", "none")))
+        self.set_console_refresh = ctk.StringVar(value=f"{self._console_refresh_sec} sec")
         self._path_row(f, "TrueCollider CPU exe", self.set_tc, exe=True)
         self._path_row(f, "TrueCollider CUDA exe", self.set_tcc, exe=True)
         self._path_row(f, "TrueMkeyCollider exe", self.set_mk, exe=True)
@@ -1238,6 +1262,12 @@ class TrueNexusApp(ctk.CTk):
         ctk.CTkEntry(g, textvariable=self.set_threads, width=100).grid(row=1, column=0, sticky="w", padx=6)
         self._label(g, "Default GPU (-U)", text_color=self.theme["muted"]).grid(row=0, column=1, sticky="w", padx=6)
         ctk.CTkOptionMenu(g, variable=self.set_gpu, values=GPU, width=120).grid(row=1, column=1, sticky="w", padx=6)
+        self._label(g, "Console refresh (GPU-safe)", text_color=self.theme["muted"]).grid(row=0, column=2, sticky="w", padx=6)
+        ctk.CTkOptionMenu(
+            g, variable=self.set_console_refresh,
+            values=["5 sec", "10 sec", "15 sec", "20 sec"], width=100,
+            command=self._on_console_refresh,
+        ).grid(row=1, column=2, sticky="w", padx=6)
 
         brow = ctk.CTkFrame(f, fg_color="transparent")
         brow.pack(fill="x", pady=12)
@@ -1256,6 +1286,13 @@ class TrueNexusApp(ctk.CTk):
         self.set_wd.set(self.settings.get("workdir", ""))
         self.set_threads.set(str(self.settings.get("default_threads", "8")))
         self.set_gpu.set(str(self.settings.get("default_gpu", "none")))
+        sec = int(self.settings.get("console_refresh_sec", 10) or 10)
+        if sec not in (5, 10, 15, 20):
+            sec = 10
+        self._console_refresh_sec = sec
+        self.set_console_refresh.set(f"{sec} sec")
+        if hasattr(self, "console_refresh"):
+            self.console_refresh.set(f"{sec} sec")
         self._set_status("Settings reloaded from disk")
 
     def _reset_settings(self) -> None:
@@ -1270,6 +1307,8 @@ class TrueNexusApp(ctk.CTk):
         self.settings["workdir"] = self.set_wd.get().strip()
         self.settings["default_threads"] = self.set_threads.get().strip() or "8"
         self.settings["default_gpu"] = self.set_gpu.get().strip() or "none"
+        self._on_console_refresh(self.set_console_refresh.get())
+        self.settings["console_refresh_sec"] = self._console_refresh_sec
         self.settings["theme"] = self.theme_name
         # Sync live widgets
         if hasattr(self, "tc_exe"):
@@ -1285,6 +1324,8 @@ class TrueNexusApp(ctk.CTk):
                 self.tc_gpu.set(self.settings["default_gpu"])
             except Exception:
                 pass
+        if hasattr(self, "console_refresh"):
+            self.console_refresh.set(f"{self._console_refresh_sec} sec")
         CONFIG_PATH.write_text(json.dumps(self.settings, indent=2), encoding="utf-8")
         self._set_status(f"Settings saved → {CONFIG_PATH}")
         messagebox.showinfo("Saved", f"Settings written to\n{CONFIG_PATH}")
@@ -1317,43 +1358,111 @@ class TrueNexusApp(ctk.CTk):
                       fg_color=self.theme["accent"], text_color="#111").pack(side="left", padx=4)
 
     # ── console helpers ─────────────────────────────────────────────────
-    def _ui_tick(self) -> None:
-        """Main-thread pump for console/status queues (thread-safe)."""
+    def _on_console_refresh(self, value: str) -> None:
         try:
-            self._flush_console()
+            sec = int(str(value).split()[0])
+        except Exception:
+            sec = 10
+        if sec not in (5, 10, 15, 20):
+            sec = 10
+        self._console_refresh_sec = sec
+        self.settings["console_refresh_sec"] = sec
+        try:
+            CONFIG_PATH.write_text(json.dumps(self.settings, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+        if hasattr(self, "set_console_refresh"):
+            self.set_console_refresh.set(f"{sec} sec")
+        if hasattr(self, "console_refresh"):
+            self.console_refresh.set(f"{sec} sec")
+        self._set_status(f"Console refresh set to {sec}s (buffered — safer for GPU)")
+
+    def _refresh_console_now(self) -> None:
+        pending = self._console_pending_bytes
+        self._console_force_flush = True
+        self._flush_console()
+        self._set_status(
+            f"Console refreshed ({pending // 1024} KB were buffered)" if pending else "Console refreshed"
+        )
+
+    def _stop_and_flush(self) -> None:
+        self.runner.stop()
+        self._console_force_flush = True
+        self._flush_console()
+
+    def _ui_tick(self) -> None:
+        """Main-thread pump — status often; console only on chosen interval."""
+        try:
+            now = time.monotonic()
+            if self._console_force_flush or (now - self._console_last_flush) >= float(self._console_refresh_sec):
+                self._flush_console()
             if self._status_q:
                 msg = self._status_q[-1]
                 self._status_q.clear()
                 self._set_status(msg)
+            # Show buffered size so user knows output is waiting
+            if self._console_pending_bytes > 0 and self.runner.running:
+                kb = self._console_pending_bytes // 1024
+                self.status.configure(
+                    text=f"Running… console buffer {kb} KB — refresh in "
+                         f"{max(0, int(self._console_refresh_sec - (now - self._console_last_flush)))}s "
+                         f"(or click Refresh now)"
+                )
         finally:
             try:
-                self.after(50, self._ui_tick)
+                self.after(250, self._ui_tick)
             except Exception:
                 pass
 
     def _append_console(self, text: str) -> None:
-        # Worker threads only enqueue — main thread flushes via _ui_tick
+        # Worker threads only enqueue — main thread flushes on interval
+        if not text:
+            return
         self._console_q.append(text)
+        self._console_pending_bytes += len(text)
+        # Cap buffer so a 20s GPU flood cannot OOM the GUI
+        max_buf = 256_000
+        while self._console_pending_bytes > max_buf and self._console_q:
+            dropped = self._console_q.pop(0)
+            self._console_pending_bytes -= len(dropped)
+            if not hasattr(self, "_console_dropped_note") or not self._console_dropped_note:
+                self._console_q.insert(0, "[TrueNexus] (console buffer capped — older lines dropped)\n")
+                self._console_pending_bytes += 60
+                self._console_dropped_note = True
 
     def _flush_console(self) -> None:
+        self._console_force_flush = False
+        self._console_last_flush = time.monotonic()
+        self._console_dropped_note = False
         if not self._console_q:
+            self._console_pending_bytes = 0
             return
         chunk = "".join(self._console_q)
         self._console_q.clear()
+        self._console_pending_bytes = 0
         try:
+            # Hard-cap each flush so one paste cannot freeze Tk
+            if len(chunk) > 120_000:
+                chunk = (
+                    "[TrueNexus] (flush truncated to last 120 KB for GUI safety)\n"
+                    + chunk[-120_000:]
+                )
             self.console.insert("end", chunk)
             self.console.see("end")
             content = self.console.get("1.0", "end")
-            if len(content) > 500_000:
-                self.console.delete("1.0", "end-400000c")
+            if len(content) > 300_000:
+                self.console.delete("1.0", "end-200000c")
         except Exception:
             pass
 
     def _clear_console(self) -> None:
         self._console_q.clear()
+        self._console_pending_bytes = 0
+        self._console_dropped_note = False
         self.console.delete("1.0", "end")
 
     def _copy_console(self) -> None:
+        self._console_force_flush = True
         self._flush_console()
         self._copy_text(self.console.get("1.0", "end"))
 
@@ -1393,6 +1502,8 @@ class TrueNexusApp(ctk.CTk):
 
     def _on_proc_done(self, code: int) -> None:
         self._status_q.append(f"Process finished ({code})")
+        # Pull remaining buffered lines when the job ends
+        self._console_force_flush = True
 
     def _set_status(self, text: str) -> None:
         try:
