@@ -455,7 +455,11 @@ class TrueNexusApp(ctk.CTk):
         self.tc_coin = self._dropdown(grid, "Coin (-c)", COINS, "btc", 0, 1)
         self.tc_look = self._dropdown(grid, "Look (-l)", LOOK, "compress", 1, 0)
         self.tc_pattern = self._dropdown(grid, "Pattern (-x)", SEARCH_PATTERNS, "chaos", 1, 1)
-        self.tc_gpu = self._dropdown(grid, "GPU (-U)", GPU, "none", 2, 0)
+        self.tc_gpu = self._dropdown(
+            grid, "GPU (-U) — none=CPU / cuda / opencl", GPU,
+            self.settings.get("default_gpu", "none"), 2, 0,
+        )
+        self.tc_gpu.configure(command=self._on_tc_gpu)
         self.tc_vector = self._dropdown(grid, "Vector (-A)", VECTOR, "auto", 2, 1)
 
         self.tc_target = ctk.StringVar()
@@ -513,6 +517,25 @@ class TrueNexusApp(ctk.CTk):
         ctk.CTkButton(row, text="Launch TrueCollider", fg_color=self.theme["accent"], text_color="#111",
                       command=self._launch_collider).pack(side="left", padx=4)
         self._sync_tc_bsgs_panel()
+
+    def _on_tc_gpu(self, _value: str | None = None) -> None:
+        """Keep TrueMkey + Settings compute box in sync with TrueCollider GPU."""
+        if not hasattr(self, "tc_gpu"):
+            return
+        val = self.tc_gpu.get()
+        if hasattr(self, "mk_gpu"):
+            try:
+                self.mk_gpu.set(val)
+                self._sync_mk_gpu_panel()
+            except Exception:
+                pass
+        if hasattr(self, "set_gpu"):
+            try:
+                self.set_gpu.set(val)
+            except Exception:
+                pass
+        self.settings["default_gpu"] = val
+        self._set_status(f"Compute: {val} (TrueCollider + TrueMkey)")
 
     def _mode_token(self, label: str | None = None) -> str:
         raw = (label if label is not None else self.tc_mode.get()) or ""
@@ -1209,10 +1232,10 @@ class TrueNexusApp(ctk.CTk):
         tab = self.tabs.tab("TrueMkey")
         f = self._scroll(tab)
         f.pack(fill="both", expand=True)
-        self._section(f, "TrueMkeyCollider — CUDA AES mkey/ckey")
+        self._section(f, "TrueMkeyCollider — AES mkey/ckey")
         self._label(
             f,
-            "GPU AES-256 trials against Bitcoin Core wallet.dat encrypted keys.\n"
+            "Same CPU / GPU box as TrueCollider. CUDA search for AES trials; CPU for --try / host helpers.\n"
             "Partial-key mode (--partial) is where GPU earns its keep. Full 2^256 is not feasible.",
             text_color=self.theme["muted"],
         ).pack(anchor="w")
@@ -1228,14 +1251,27 @@ class TrueNexusApp(ctk.CTk):
 
         g = ctk.CTkFrame(f, fg_color="transparent")
         g.pack(fill="x")
-        self.mk_mode = self._dropdown(g, "Walk", ["random", "sequential", "mixed"], "random", 0, 0)
-        self.mk_grid = self._entry(g, "Grid -g", "256,256", 0, 1)
-        self.mk_streams = self._entry(g, "Streams", "4", 1, 0)
-        self.mk_mem = self._entry(g, "Memory -M", "auto", 1, 1)
-        self.mk_dev = self._entry(g, "Device -d", "0", 2, 0)
-        self.mk_partial = self._entry(g, "Partial prefix", "", 2, 1)
-        self.mk_try = self._entry(g, "--try HEX", "", 3, 0)
-        self.mk_limit = self._entry(g, "Limit -n", "", 3, 1)
+        mk_gpu_default = self.settings.get("default_gpu", "cuda")
+        if mk_gpu_default not in GPU:
+            mk_gpu_default = "cuda"
+        self.mk_gpu = self._dropdown(
+            g, "GPU (-U) — none=CPU / cuda / opencl (same as TrueCollider)", GPU, mk_gpu_default, 0, 0
+        )
+        self.mk_gpu.configure(command=self._on_mk_gpu)
+        self.mk_mode = self._dropdown(g, "Walk", ["random", "sequential", "mixed"], "random", 0, 1)
+
+        self.mk_gpu_opts = ctk.CTkFrame(f, fg_color="transparent")
+        self.mk_gpu_opts.pack(fill="x", pady=4)
+        self.mk_grid = self._entry(self.mk_gpu_opts, "Grid -g", "256,256", 0, 0)
+        self.mk_streams = self._entry(self.mk_gpu_opts, "Streams", "4", 0, 1)
+        self.mk_mem = self._entry(self.mk_gpu_opts, "Memory -M", "auto", 1, 0)
+        self.mk_dev = self._entry(self.mk_gpu_opts, "Device -d", "0", 1, 1)
+
+        self.mk_more = ctk.CTkFrame(f, fg_color="transparent")
+        self.mk_more.pack(fill="x")
+        self.mk_partial = self._entry(self.mk_more, "Partial prefix", "", 0, 0)
+        self.mk_try = self._entry(self.mk_more, "--try HEX (CPU/host verify)", "", 0, 1)
+        self.mk_limit = self._entry(self.mk_more, "Limit -n", "", 1, 0)
 
         self.mk_selftest = ctk.CTkCheckBox(f, text="Self-test PoC (--selftest)")
         self.mk_selftest.pack(anchor="w", pady=6)
@@ -1248,6 +1284,38 @@ class TrueNexusApp(ctk.CTk):
         ctk.CTkButton(row, text="Copy", command=lambda: self._copy_text(self.mk_preview.get("1.0", "end"))).pack(side="left", padx=4)
         ctk.CTkButton(row, text="Launch TrueMkey", fg_color=self.theme["accent"], text_color="#111",
                       command=self._launch_mkey).pack(side="left", padx=4)
+        self._mk_gpu_visible = True
+        self._sync_mk_gpu_panel()
+
+    def _mk_use_gpu(self) -> bool:
+        g = (self.mk_gpu.get() if hasattr(self, "mk_gpu") else "cuda") or "cuda"
+        return g.strip().lower() not in ("none", "cpu", "")
+
+    def _on_mk_gpu(self, _value: str | None = None) -> None:
+        self._sync_mk_gpu_panel()
+        if hasattr(self, "tc_gpu") and hasattr(self, "mk_gpu"):
+            try:
+                self.tc_gpu.set(self.mk_gpu.get())
+            except Exception:
+                pass
+        if hasattr(self, "set_gpu") and hasattr(self, "mk_gpu"):
+            try:
+                self.set_gpu.set(self.mk_gpu.get())
+            except Exception:
+                pass
+        kind = "GPU (CUDA)" if self._mk_use_gpu() else "CPU / host"
+        self._set_status(f"TrueMkey compute: {kind}")
+
+    def _sync_mk_gpu_panel(self) -> None:
+        if not hasattr(self, "mk_gpu_opts") or not hasattr(self, "mk_more"):
+            return
+        show = self._mk_use_gpu()
+        if show and not getattr(self, "_mk_gpu_visible", False):
+            self.mk_gpu_opts.pack(fill="x", pady=4, before=self.mk_more)
+            self._mk_gpu_visible = True
+        elif not show and getattr(self, "_mk_gpu_visible", True):
+            self.mk_gpu_opts.pack_forget()
+            self._mk_gpu_visible = False
 
     def _preview_mkey(self) -> None:
         cfg = MkeyConfig(
@@ -1256,6 +1324,7 @@ class TrueNexusApp(ctk.CTk):
             mkeys=self.mk_mkeys.get().strip(),
             pubkeys=self.mk_pubs.get().strip(),
             mode=self.mk_mode.get(),
+            gpu=self.mk_gpu.get() if hasattr(self, "mk_gpu") else "cuda",
             device=self.mk_dev.get().strip() or "0",
             grid=self.mk_grid.get().strip() or "256,256",
             streams=self.mk_streams.get().strip() or "4",
@@ -1271,7 +1340,18 @@ class TrueNexusApp(ctk.CTk):
     def _launch_mkey(self) -> None:
         self._preview_mkey()
         cmd = self.mk_preview.get("1.0", "end").strip()
+        if not self._mk_use_gpu() and not self.mk_try.get().strip() and not self.mk_selftest.get():
+            if not messagebox.askokcancel(
+                "TrueMkey — CPU selected",
+                "Compute is set to CPU (none).\n\n"
+                "AES key search still needs CUDA in TrueMkeyCollider.\n"
+                "Use --try HEX for host verify, or switch Compute to cuda.\n\n"
+                "Launch anyway?",
+            ):
+                return
         self.settings["truemkey_exe"] = self.mk_exe.get().strip()
+        if hasattr(self, "mk_gpu"):
+            self.settings["default_gpu"] = self.mk_gpu.get()
         cwd = str(Path(self.mk_exe.get()).parent) if self.mk_exe.get() else None
         self.runner.start(cmd, cwd=cwd)
 
@@ -1551,6 +1631,12 @@ class TrueNexusApp(ctk.CTk):
         if hasattr(self, "tc_gpu"):
             try:
                 self.tc_gpu.set(self.settings["default_gpu"])
+            except Exception:
+                pass
+        if hasattr(self, "mk_gpu"):
+            try:
+                self.mk_gpu.set(self.settings["default_gpu"])
+                self._sync_mk_gpu_panel()
             except Exception:
                 pass
         if hasattr(self, "console_refresh"):

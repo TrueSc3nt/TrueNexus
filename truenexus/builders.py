@@ -328,6 +328,7 @@ class MkeyConfig:
     pubkeys: str = ""
     mode: str = "random"
     start_key: str = ""
+    gpu: str = "cuda"  # none = CPU/host helpers; cuda = GPU search
     device: str = "0"
     grid: str = "256,256"
     streams: str = "4"
@@ -358,14 +359,16 @@ class MkeyConfig:
             parts.append("-rs")
         if self.start_key:
             parts += ["-s", self.start_key]
-        if self.device:
-            parts += ["-d", self.device]
-        if self.grid:
-            parts += ["-g", self.grid]
-        if self.streams:
-            parts += ["-streams", self.streams]
-        if self.memory:
-            parts += ["-M", self.memory]
+        use_gpu = (self.gpu or "cuda").strip().lower() not in ("none", "cpu", "")
+        if use_gpu:
+            if self.device:
+                parts += ["-d", self.device]
+            if self.grid:
+                parts += ["-g", self.grid]
+            if self.streams:
+                parts += ["-streams", self.streams]
+            if self.memory:
+                parts += ["-M", self.memory]
         if self.limit:
             parts += ["-n", self.limit]
         if self.partial:
