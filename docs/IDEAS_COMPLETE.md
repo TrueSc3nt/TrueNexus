@@ -1,6 +1,10 @@
 # TrueNexus — Complete Ideas Mirror
 
-This file is the in-app mirror of every idea from TrueCollider `README_IDEAS_FOR_IMPROVEMENT`.
-Nothing from that research matrix is omitted from TrueNexus UI catalogs.
+This file is the in-app mirror of:
 
-See also: Ideas Matrix tab · Roadmap tab · Recipes tab · all lab dropdowns.
+1. TrueCollider `README_IDEAS_FOR_IMPROVEMENT` (original research matrix)
+2. **Research 2026 wave** (`docs/RESEARCH_2026.md`) — GPU mnemonic, ECDLP, multi-coin, novel, ANTI
+
+Nothing from those catalogs is omitted from TrueNexus UI.
+
+See also: Ideas Matrix · Address Watch · Roadmap · Recipes · Full Ideas Doc.

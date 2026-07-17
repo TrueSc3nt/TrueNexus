@@ -62,6 +62,7 @@ from truenexus.puzzles import (
 )
 from truenexus.runner import ProcessRunner
 from truenexus.themes import DEFAULT_THEME, THEMES
+from truenexus.watch import WatchBook, parse_watch_lines, poll_once
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "presets" / "user_settings.json"
@@ -221,8 +222,8 @@ class TrueNexusApp(ctk.CTk):
         # Sidebar nav (replaces squashed horizontal CTkTabview strip)
         nav_names = (
             "Home", "TrueCollider", "Puzzles", "Mnemonic Lab", "BSGS Lab",
-            "Address / RMD160", "WeakRNG Lab", "TrueMkey", "Ideas Matrix",
-            "Roadmap", "Recipes", "Full Ideas Doc", "Settings", "About",
+            "Address / RMD160", "WeakRNG Lab", "TrueMkey", "Address Watch",
+            "Ideas Matrix", "Roadmap", "Recipes", "Full Ideas Doc", "Settings", "About",
         )
         sidebar = ctk.CTkFrame(body, fg_color=self.theme["card"], width=200, corner_radius=10)
         sidebar.grid(row=0, column=0, sticky="nsw", padx=(0, 8))
@@ -283,6 +284,7 @@ class TrueNexusApp(ctk.CTk):
         self._build_address()
         self._build_weakrng()
         self._build_mkey()
+        self._build_watch()
         self._build_ideas()
         self._build_roadmap()
         self._build_recipes()
@@ -1362,12 +1364,173 @@ class TrueNexusApp(ctk.CTk):
         cwd = str(Path(self.mk_exe.get()).parent) if self.mk_exe.get() else None
         self.runner.start(cmd, cwd=cwd)
 
+    # ── Address Watch (lawful alert-only) ───────────────────────────────
+    def _build_watch(self) -> None:
+        tab = self.tabs.tab("Address Watch")
+        f = self._scroll(tab)
+        f.pack(fill="both", expand=True)
+        self._watch_book = WatchBook()
+        self._watch_job = None
+        self._watch_running = False
+
+        self._section(f, "Address Watch — alert only")
+        self._label(
+            f,
+            "Monitor addresses YOU enter. Balance + last-tx alerts only.\n"
+            "NO auto-withdraw · NO RBF race · NO key scraping.\n"
+            "Lawful substitute for refused scraper / mempool-hijack ideas.",
+            text_color=self.theme["danger"],
+        ).pack(anchor="w", pady=(0, 8))
+
+        self._label(f, "Addresses (one per line: address  or  address | label)").pack(anchor="w")
+        self.watch_addrs = ctk.CTkTextbox(f, height=140, font=ctk.CTkFont(family="Consolas", size=13))
+        self.watch_addrs.pack(fill="x", pady=4)
+        self.watch_addrs.insert(
+            "1.0",
+            "# Example — replace with your own addresses\n"
+            "# bc1q… | cold-storage\n",
+        )
+
+        row = ctk.CTkFrame(f, fg_color="transparent")
+        row.pack(fill="x", pady=6)
+        self._label(row, "Poll every").pack(side="left", padx=(0, 6))
+        self.watch_interval = ctk.CTkOptionMenu(
+            row, values=["15", "30", "60", "120", "300"], width=90,
+        )
+        self.watch_interval.set("60")
+        self.watch_interval.pack(side="left", padx=4)
+        self._label(row, "sec").pack(side="left", padx=(0, 12))
+        self._label(row, "Explorer").pack(side="left", padx=(0, 6))
+        self.watch_explorer = ctk.CTkOptionMenu(
+            row, values=["mempool", "blockstream"], width=130,
+        )
+        self.watch_explorer.set("mempool")
+        self.watch_explorer.pack(side="left", padx=4)
+        self.watch_changes_only = ctk.CTkCheckBox(row, text="Changes only after first poll")
+        self.watch_changes_only.select()
+        self.watch_changes_only.pack(side="left", padx=12)
+
+        btn = ctk.CTkFrame(f, fg_color="transparent")
+        btn.pack(fill="x", pady=8)
+        ctk.CTkButton(
+            btn, text="Poll once", fg_color=self.theme["accent"], text_color="#111",
+            command=self._watch_poll_once,
+        ).pack(side="left", padx=4)
+        ctk.CTkButton(
+            btn, text="Start watching", command=self._watch_start,
+        ).pack(side="left", padx=4)
+        ctk.CTkButton(
+            btn, text="Stop", fg_color=self.theme.get("danger", "#a33"),
+            command=self._watch_stop,
+        ).pack(side="left", padx=4)
+        ctk.CTkButton(
+            btn, text="Open Telegram", command=self._open_telegram,
+        ).pack(side="left", padx=4)
+
+        self._section(f, "Last results")
+        self.watch_log = ctk.CTkTextbox(f, height=220, font=ctk.CTkFont(family="Consolas", size=12))
+        self.watch_log.pack(fill="both", expand=True, pady=4)
+        self.watch_status = ctk.CTkLabel(f, text="Idle — alert only", text_color=self.theme["muted"])
+        self.watch_status.pack(anchor="w", pady=4)
+
+    def _watch_append(self, msg: str) -> None:
+        line = msg.rstrip() + "\n"
+        if hasattr(self, "watch_log"):
+            self.watch_log.insert("end", line)
+            self.watch_log.see("end")
+        self._append_console(line)
+        if "CHANGE" in msg or "NEW" in msg:
+            self._set_status(msg[:120])
+
+    def _watch_poll_once(self) -> None:
+        text = self.watch_addrs.get("1.0", "end") if hasattr(self, "watch_addrs") else ""
+        addrs = parse_watch_lines(text)
+        if not addrs:
+            messagebox.showwarning("Address Watch", "Add at least one address to watch.")
+            return
+        prefer = self.watch_explorer.get() if hasattr(self, "watch_explorer") else "mempool"
+        changes_only = bool(self.watch_changes_only.get()) if hasattr(self, "watch_changes_only") else False
+        # First poll always shows everything so user sees baseline
+        if not self._watch_book.entries:
+            changes_only = False
+        self.watch_status.configure(text=f"Polling {len(addrs)} address(es)…")
+        self.update_idletasks()
+
+        def run() -> None:
+            try:
+                msgs = poll_once(
+                    text,
+                    self._watch_book,
+                    prefer=prefer,
+                    changes_only=changes_only,
+                )
+                self.after(0, lambda: self._watch_finish_poll(msgs, len(addrs)))
+            except Exception as e:
+                self.after(0, lambda: self._watch_finish_poll([f"[WATCH ERR] {e}"], 0))
+
+        import threading
+        threading.Thread(target=run, daemon=True).start()
+
+    def _watch_finish_poll(self, msgs: list[str], n: int) -> None:
+        for m in msgs:
+            self._watch_append(m)
+        if not msgs:
+            self._watch_append("[WATCH] No changes.")
+        self.watch_status.configure(
+            text=f"Last poll: {n} addr · tracked={len(self._watch_book.entries)} · alert-only"
+        )
+
+    def _watch_start(self) -> None:
+        if self._watch_running:
+            return
+        text = self.watch_addrs.get("1.0", "end") if hasattr(self, "watch_addrs") else ""
+        if not parse_watch_lines(text):
+            messagebox.showwarning("Address Watch", "Add at least one address to watch.")
+            return
+        self._watch_running = True
+        self.watch_status.configure(text="Watching… (alert only — no auto-spend)")
+        self._watch_append("[WATCH] Started — alert only, no withdraw, no RBF.")
+        self._watch_poll_once()
+        self._watch_schedule_next()
+
+    def _watch_schedule_next(self) -> None:
+        if not self._watch_running:
+            return
+        try:
+            sec = int(self.watch_interval.get())
+        except Exception:
+            sec = 60
+        sec = max(15, sec)
+        self._watch_job = self.after(sec * 1000, self._watch_tick)
+
+    def _watch_tick(self) -> None:
+        if not self._watch_running:
+            return
+        self._watch_poll_once()
+        self._watch_schedule_next()
+
+    def _watch_stop(self) -> None:
+        self._watch_running = False
+        if self._watch_job is not None:
+            try:
+                self.after_cancel(self._watch_job)
+            except Exception:
+                pass
+            self._watch_job = None
+        if hasattr(self, "watch_status"):
+            self.watch_status.configure(text="Stopped — alert only")
+        self._watch_append("[WATCH] Stopped.")
+
     # ── Ideas Matrix ────────────────────────────────────────────────────
     def _build_ideas(self) -> None:
         tab = self.tabs.tab("Ideas Matrix")
         f = self._scroll(tab)
         f.pack(fill="both", expand=True)
-        self._section(f, "EVERY idea from README_IDEAS_FOR_IMPROVEMENT")
+        self._section(f, "EVERY idea — original README + Research 2026 wave")
+        rep = ctk.CTkTextbox(f, height=90, font=ctk.CTkFont(family="Consolas", size=12))
+        rep.pack(fill="x", pady=4)
+        rep.insert("1.0", completeness_report())
+        rep.configure(state="disabled")
         self._label(
             f,
             "Catalog is large — click Load to populate (keeps the app snappy).",
@@ -1378,11 +1541,14 @@ class TrueNexusApp(ctk.CTk):
         filter_row.pack(fill="x", pady=4)
         self.ideas_filter = ctk.CTkOptionMenu(
             filter_row,
-            values=["ALL", "live only", "research only", "notes only"],
+            values=[
+                "ALL", "live only", "gap only", "novel only",
+                "research only", "anti only", "notes only",
+            ],
             command=lambda _v: self._rebuild_idea_cards(self._ideas_host),
-            width=180,
+            width=160,
         )
-        self.ideas_filter.set("live only")
+        self.ideas_filter.set("gap only")
         self.ideas_filter.pack(side="left", padx=(0, 8))
         ctk.CTkButton(
             filter_row, text="Load catalog", fg_color=self.theme["accent"], text_color="#111",
@@ -1407,17 +1573,29 @@ class TrueNexusApp(ctk.CTk):
         for title, status, desc in all_idea_cards():
             if want == "live only" and status != "live":
                 continue
-            if want == "research only" and status != "research":
+            if want == "gap only" and status != "gap":
                 continue
-            if want == "notes only" and status != "note":
+            if want == "novel only" and status != "novel":
+                continue
+            if want == "research only" and status not in ("research", "gap", "novel"):
+                continue
+            if want == "anti only" and status != "anti":
+                continue
+            if want == "notes only" and status not in ("note", "anti"):
                 continue
             card = ctk.CTkFrame(host, fg_color=self.theme["fg"], corner_radius=8)
             card.pack(fill="x", pady=3)
-            badge = {"live": "LIVE", "research": "RESEARCH", "note": "NOTE"}.get(status, status.upper())
+            badge = {
+                "live": "LIVE", "research": "RESEARCH", "note": "NOTE",
+                "gap": "GAP", "novel": "NOVEL", "anti": "ANTI",
+            }.get(status, status.upper())
             color = {
                 "live": self.theme["success"],
                 "research": self.theme["accent"],
+                "gap": "#e6a817",
+                "novel": "#7c5cff",
                 "note": self.theme["muted"],
+                "anti": self.theme.get("danger", "#c44"),
             }.get(status, self.theme["accent"])
             ctk.CTkLabel(
                 card, text=f"{badge}  ·  {title}",

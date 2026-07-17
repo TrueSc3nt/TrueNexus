@@ -259,11 +259,15 @@ CROSS_CUTTING = [
 
 # ── §7 Roadmap ──────────────────────────────────────────────────────────
 ROADMAP_P0 = [
-    "Mnemonic mask + lastword + checksum-first (CPU then CUDA PBKDF2)",
+    "CUDA PBKDF2-HMAC-SHA512 on-device (mask recovery bottleneck)",
+    "Checksum-first GPU gate before PBKDF2",
+    "SOTA kangaroo CUDA (RCKangaroo-class K≈1.15)",
+    "Multi-coin fuse: one EC → BTC/ETH/LTC/DOGE in one kernel",
+    "Device-resident hash160 + XOR/fuse GPU prefilter",
+    "Mnemonic mask + lastword (CPU live → deepen CUDA)",
     "Mnemonic pass-dict / pass-mask",
     "Custom path packs (BIP-86, ETH Ledger Live, Electrum)",
     "BSGS negmap + better GPU batched giants",
-    "Device-side hash160 + fuse for address/rmd160",
 ]
 ROADMAP_P1 = [
     "Mnemonic model file + WordOrbit",
@@ -312,11 +316,107 @@ RECIPES = [
 
 # ── §9 Anti-ideas (explicitly documented so nothing is “left out”) ───────
 ANTI_IDEAS = [
-    ("NO full-256-bit claims", "note", "Never claim full 256-bit or blind 12-word search is practical."),
-    ("NO AI-finds-keys theater", "note", "No fake AI without a real constraint model."),
-    ("NO half-finished -x spam", "note", "Don't add 50 RNG reshuffles without substance."),
-    ("NO skip-checksum GPU", "note", "Never skip BIP-39 checksum before PBKDF2."),
-    ("NO fuse rotate on long BSGS", "note", "Use freeze-table — avoid FP death spiral."),
+    ("NO full-256-bit claims", "anti", "Never claim full 256-bit or blind 12-word search is practical."),
+    ("NO AI-finds-keys theater", "anti", "No fake AI without a real constraint model."),
+    ("NO half-finished -x spam", "anti", "Don't add 50 RNG reshuffles without substance."),
+    ("NO skip-checksum GPU", "anti", "Never skip BIP-39 checksum before PBKDF2."),
+    ("NO fuse rotate on long BSGS", "anti", "Use freeze-table — avoid FP death spiral."),
+    ("NO key-scraper + auto-withdraw", "anti", "REFUSED: scraping internet keys + auto-sweep to your wallet is theft tooling. Use Address Watch (alert-only) instead."),
+    ("NO RBF / mempool race hijack", "anti", "REFUSED: watching foreign spends and RBF-racing them to your receiver is prize sniping. Address Watch alerts only — never auto-spend."),
+]
+
+# ── §11 Research 2026 wave (forums/GitHub synthesis — GAP/NOVEL) ─────────
+# Status: gap = competitors have / we don't yet; novel = rarely shipped open;
+#         live = already in TrueCollider/TrueNexus; anti = never implant.
+RESEARCH_GPU_MNEMONIC = [
+    ("CUDA PBKDF2-HMAC-SHA512 on-device", "gap", "P0 — Full 2048-iter BIP39 stretch on GPU; CPU PBKDF2 is the mask-recovery bottleneck."),
+    ("Checksum-first GPU gate", "gap", "P0 — Reject invalid BIP39 before PBKDF2 (≈4096× for 12-word lastword)."),
+    ("Multi-GPU stride scheduler", "gap", "Independent device ranges — zero duplicate mnemonic work."),
+    ("Checkpointed mnemonic cursor", "gap", "Resume mask/pass enumeration after crash without redoing space."),
+    ("GPU XOR / fuse prefilters", "gap", "P0 — XopMC-style device bloom/xor before derive (-xc/-xu pattern)."),
+    ("Electrum v1/v2 GPU path", "gap", "Seed version bytes + different stretch fully on CUDA."),
+    ("SLIP39 Shamir GPU recovery", "gap", "Threshold share repair/combine — almost nobody has GPU."),
+    ("aezeed Lightning recovery", "gap", "LND aezeed + watchtower identity keys."),
+    ("BIP85 child mnemonic search", "gap", "Known parent → child index space (CPU live; GPU still gap)."),
+    ("Producer/consumer GPU split", "novel", "GPU-A checksum · GPU-B PBKDF2 · GPU-C EC+hash160 pipeline."),
+    ("Passphrase lattice (LM prior)", "novel", "25th-word as low-entropy grammar (years/pets/keyboard) scored, not pure charset."),
+    ("Mixed-script wordlist detect", "novel", "EN↔ES↔FR substitution collisions auto-detect."),
+    ("Phonetic / OCR typo model GPU", "novel", "QWERTY adjacency + OCR confusion before PBKDF2."),
+    ("Solana SLIP-0010 mnemonic CUDA", "gap", "ed25519 mnemonic→pubkey on CUDA (address mode exists; full pipeline gap)."),
+    ("TON/Cosmos/Near mnemonic pack", "gap", "One -c multi-target pack beyond BTC/ETH/SOL."),
+    ("DualTarget verify BTC+ETH", "novel", "One seed must hit hash160 AND keccak — collapses FPs (flag live; deepen)."),
+    ("PathNova adaptive fanout", "novel", "Learn historically hot paths (Ledger ETH, Electrum) and weight GPU work."),
+    ("Hashcat rules on GPU", "gap", "best64 / toggles passphrase rules fully on device."),
+    ("SeedCascadeVerify", "novel", "Cheap bloom → fuse16 → exact host verify (bandwidth-aware)."),
+    ("ChecksumPrism multi-lang", "novel", "Same entropy → N BIP39 wordlists simultaneous (partial live)."),
+]
+
+RESEARCH_ECDLP = [
+    ("SOTA kangaroo CUDA (RCKangaroo-class)", "gap", "P0 — K≈1.15 endo/symmetry as -m kangaroo CUDA backend."),
+    ("16-byte compact DP + async resolve", "gap", "PSCKangaroo-style DP density + async BSGS resolve on hit."),
+    ("Crash-safe DP checkpoint / ramlimit", "gap", "Month-long #135 runs with resume + -ramlimit."),
+    ("HerdHandoff deepen tame preload", "live", "hybrid-dl live — deepen with tame herd preload."),
+    ("Multi-GPU kangaroo tame/wild split", "gap", "Tame table GPU0; wild herds GPU1..N."),
+    ("NegMap + SOTA shared arena", "novel", "negmap BSGS + kangaroo wilds in one memory arena."),
+    ("Orbit-collapsed tame table", "novel", "Endo classes shared across kangaroo + BSGS."),
+    ("Known-pubkey puzzle pack recipes", "gap", "135/140/145/150/155/160 one-click kangaroo (partial LIVE in Puzzles)."),
+    ("Kangaroo + residue --mod", "novel", "Gaudry–Schost interval split on kangaroo walks."),
+    ("DP gravity prior", "novel", "Bias wild jumps toward historically dense DP regions."),
+    ("JLP / BitCrack DP import", "gap", "Interoperability for competitor DP file formats."),
+    ("PubKey→Address dual-use EC", "novel", "While DL hunting, also emit hash160 into funded bloom."),
+]
+
+RESEARCH_ADDRESS_FILTERS = [
+    ("Device-resident hash160 + fuse", "gap", "P0 — Minimize PCIe; hash+fuse stay on GPU."),
+    ("XorFilter / Ribbon ingest", "gap", "Smaller than bloom for static target sets."),
+    ("Shadow160 CUDA birthday", "novel", "Partial hash160 DP with CUDA sort/hash (UI live)."),
+    ("Funded-only UTXO snapshot filter", "novel", "Exclude dust/empty — funded hash160 primary."),
+    ("P2TR x-only match completeness", "gap", "Taproot internal/output key paths complete."),
+    ("Multi-coin fuse one kernel", "novel", "P0 — One EC → BTC/ETH/LTC/DOGE encodings in one pass."),
+    ("Script-template collide", "novel", "P2SH redeem templates, not only P2PKH."),
+    ("Vanity regex on GPU", "gap", "Charset / regex / middle match constraints."),
+]
+
+RESEARCH_WEAKRNG = [
+    ("MilkSad harden time windows", "live", "Libbitcoin Explorer MT19937 — harden -T UX."),
+    ("Profanity 32-bit ETH vanity", "gap", "Known 32-bit seed vanity kernel."),
+    ("Android SecureRandom 2013", "gap", "Reduced-entropy Android keyspaces."),
+    ("Blockchain.info / JS Math.random", "gap", "Early browser wallet weak RNG eras."),
+    ("Wallet.dat ckey + TrueMkey unified", "novel", "IV oracle workflow with TrueMkeyCollider."),
+    ("EntropyTimeline UI year→submode", "novel", "Pick year/firmware → auto weakrng + bit budget."),
+]
+
+RESEARCH_MULTICOIN = [
+    ("ETH keccak in same CUDA EC batch", "gap", "BTC+ETH from one EC batch."),
+    ("TRX / BCH / BTG cashaddr packs", "gap", "Cashaddr + TRON packs."),
+    ("Solana base58 grind completeness", "gap", "Full ed25519 vanity/grind path."),
+    ("Cross-curve secp+ed25519 batch", "novel", "Dual kernels sharing mnemonic entropy."),
+    ("EVM chain-id vanity displays", "novel", "Same key, different checksum address displays."),
+    ("Lightning aezeed + watchtower", "gap", "Node identity recovery."),
+    ("Ordinals-aware funded scoring", "novel", "Metadata prior for funded filter — not key search."),
+]
+
+RESEARCH_UX_OPS = [
+    ("Address Watch tab (alert-only)", "live", "Lawful substitute for scraper/RBF — balance/tx alerts only."),
+    ("Recipes always dry-run first", "gap", "Every recipe emits --dry-run before Launch."),
+    ("Job queue / multi-GPU farm dashboard", "gap", "Queue + farm status across devices."),
+    ("Competitor CLI → recipe translator", "gap", "RCKangaroo flags → TrueCollider recipe."),
+    ("Honesty meter ETA", "novel", "Estimate time-to-exhaust vs hardware before Launch."),
+    ("Rebuild/sync -U both button", "gap", "Map rebuild → Sync Tools + -U both."),
+]
+
+RESEARCH_NOVEL_RARE = [
+    ("Semantic brainwallets (offline LM)", "novel", "LLM-ranked passphrase candidates → GPU verify (offline model only)."),
+    ("HD gap-limit first-class mode", "novel", "Scan receive+change 0..N with early abort."),
+    ("Descriptor wallet recovery", "novel", "Output Script Descriptors → constrained path packs."),
+    ("Miniscript / multisig partial key", "novel", "Known one key of 2-of-3 search."),
+    ("PSBT-assisted path inference", "novel", "Unsigned PSBT metadata → paths/coins."),
+    ("Mempool prior as density-map only", "novel", "Research density for ranges you already search — never steal hook."),
+    ("ZK-friendly hit batch verify", "novel", "Prove a hit without leaking full key to untrusted worker."),
+    ("Work certificates for mnemonic farms", "novel", "Anti-cheat without sharing seed."),
+    ("Synthetic BIP39 LM prior", "novel", "Word co-occurrence priors from synthetic data only."),
+    ("HSM/wallet chip RNG fingerprint", "novel", "Constrained nonce spaces — academic."),
+    ("Taproot internal vs output dual match", "novel", "Both keys in one pass."),
 ]
 
 # ── §10 Sources (reference) ─────────────────────────────────────────────
@@ -327,6 +427,7 @@ SOURCES = [
     ("BitcoinAddressFinder", "note", "OpenCL + LMDB patterns"),
     ("BTCCollider", "note", "Partial hash160 birthday"),
     ("Hydra / btcrecover / CryptoRecover / wrecover / CUDAHUNT", "note", "Mnemonic recovery practice"),
+    ("XopMC / OpenCL BIP39 / multi-coin CUDA mnemonic", "note", "2024–2026 GPU mnemonic ecosystem"),
     ("Pollard / vOW / Gaudry-Schost / Bernstein-Lange", "note", "DL papers"),
     ("Binary fuse filters (Graf–Lemire)", "note", "Filter science"),
     ("BIP-39/32/44/49/84/85/86 · SLIP39 · Electrum", "note", "Standards"),
@@ -337,10 +438,10 @@ SOURCES = [
 def _labels(items: list[tuple[str, str, str]], annotate: bool = True) -> list[str]:
     out = []
     for name, status, _desc in items:
-        if annotate and status == "research":
-            out.append(f"{name} (research)")
-        elif annotate and status == "note":
-            out.append(f"{name} (note)")
+        if not annotate or status == "live":
+            out.append(name)
+        elif status in ("research", "gap", "novel", "note", "anti"):
+            out.append(f"{name} ({status})")
         else:
             out.append(name)
     return out
@@ -412,6 +513,13 @@ SECTION_MAP = [
     ("§8 RECIPE", RECIPES),
     ("§9 ANTI-IDEA", ANTI_IDEAS),
     ("§10 SOURCE", SOURCES),
+    ("§11A GPU MNEMONIC", RESEARCH_GPU_MNEMONIC),
+    ("§11B ECDLP", RESEARCH_ECDLP),
+    ("§11C ADDR/FILTER", RESEARCH_ADDRESS_FILTERS),
+    ("§11D WEAKRNG+", RESEARCH_WEAKRNG),
+    ("§11E MULTICOIN", RESEARCH_MULTICOIN),
+    ("§11F UX/OPS", RESEARCH_UX_OPS),
+    ("§11G NOVEL RARE", RESEARCH_NOVEL_RARE),
 ]
 
 
@@ -425,19 +533,29 @@ def all_idea_cards() -> list[tuple[str, str, str]]:
 
 def completeness_report() -> str:
     cards = all_idea_cards()
-    live = sum(1 for _, s, _ in cards if s == "live")
-    research = sum(1 for _, s, _ in cards if s == "research")
-    note = sum(1 for _, s, _ in cards if s == "note")
-    return (
-        f"TrueNexus Ideas Catalog - NOTHING OMITTED\n"
-        f"-----------------------------------------\n"
-        f"Total entries in GUI catalog: {len(cards)}\n"
-        f"  Live:     {live}\n"
-        f"  Research: {research}\n"
-        f"  Notes:    {note}\n"
-        f"\nSections mirrored: {len(SECTION_MAP)}\n"
-        f"P0={len(ROADMAP_P0)} P1={len(ROADMAP_P1)} P2={len(ROADMAP_P2)} P3={len(ROADMAP_P3)}\n"
-        f"Recipes={len(RECIPES)} Anti-ideas={len(ANTI_IDEAS)} Sources={len(SOURCES)}\n"
-        f"\nFull text: docs/README_IDEAS_FOR_IMPROVEMENT.md\n"
-        f"Tabs: Ideas Matrix · Roadmap · Recipes · Full Ideas Doc\n"
-    )
+    counts: dict[str, int] = {}
+    for _, s, _ in cards:
+        counts[s] = counts.get(s, 0) + 1
+    lines = [
+        "TrueNexus Ideas Catalog — NOTHING OMITTED",
+        "-----------------------------------------",
+        f"Total entries in GUI catalog: {len(cards)}",
+    ]
+    for key in ("live", "gap", "novel", "research", "note", "anti"):
+        if key in counts:
+            lines.append(f"  {key.capitalize():10} {counts[key]}")
+    extra = {k: v for k, v in counts.items() if k not in ("live", "gap", "novel", "research", "note", "anti")}
+    for k, v in sorted(extra.items()):
+        lines.append(f"  {k:10} {v}")
+    lines += [
+        "",
+        f"Sections mirrored: {len(SECTION_MAP)}",
+        f"P0={len(ROADMAP_P0)} P1={len(ROADMAP_P1)} P2={len(ROADMAP_P2)} P3={len(ROADMAP_P3)}",
+        f"Recipes={len(RECIPES)} Anti-ideas={len(ANTI_IDEAS)} Sources={len(SOURCES)}",
+        f"Research-2026 wave: GPU={len(RESEARCH_GPU_MNEMONIC)} ECDLP={len(RESEARCH_ECDLP)} "
+        f"Filter={len(RESEARCH_ADDRESS_FILTERS)} Multi={len(RESEARCH_MULTICOIN)} Novel={len(RESEARCH_NOVEL_RARE)}",
+        "",
+        "Full text: docs/README_IDEAS_FOR_IMPROVEMENT.md · docs/RESEARCH_2026.md",
+        "Tabs: Ideas Matrix · Address Watch · Roadmap · Recipes · Full Ideas Doc",
+    ]
+    return "\n".join(lines) + "\n"
