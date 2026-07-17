@@ -456,7 +456,7 @@ class TrueNexusApp(ctk.CTk):
         self.tc_look = self._dropdown(grid, "Look (-l)", LOOK, "compress", 1, 0)
         self.tc_pattern = self._dropdown(grid, "Pattern (-x)", SEARCH_PATTERNS, "chaos", 1, 1)
         self.tc_gpu = self._dropdown(
-            grid, "GPU (-U) — none=CPU / cuda / opencl", GPU,
+            grid, "GPU (-U) — none=CPU / cuda / opencl / both", GPU,
             self.settings.get("default_gpu", "none"), 2, 0,
         )
         self.tc_gpu.configure(command=self._on_tc_gpu)
@@ -1255,7 +1255,7 @@ class TrueNexusApp(ctk.CTk):
         if mk_gpu_default not in GPU:
             mk_gpu_default = "cuda"
         self.mk_gpu = self._dropdown(
-            g, "GPU (-U) — none=CPU / cuda / opencl (same as TrueCollider)", GPU, mk_gpu_default, 0, 0
+            g, "GPU (-U) — none=CPU / cuda / opencl / both (same as TrueCollider)", GPU, mk_gpu_default, 0, 0
         )
         self.mk_gpu.configure(command=self._on_mk_gpu)
         self.mk_mode = self._dropdown(g, "Walk", ["random", "sequential", "mixed"], "random", 0, 1)
@@ -1303,7 +1303,14 @@ class TrueNexusApp(ctk.CTk):
                 self.set_gpu.set(self.mk_gpu.get())
             except Exception:
                 pass
-        kind = "GPU (CUDA)" if self._mk_use_gpu() else "CPU / host"
+        g = (self.mk_gpu.get() if hasattr(self, "mk_gpu") else "cuda") or "cuda"
+        g = g.strip().lower()
+        if g in ("none", "cpu", ""):
+            kind = "CPU / host"
+        elif g == "both":
+            kind = "CPU + GPU"
+        else:
+            kind = f"GPU ({g})"
         self._set_status(f"TrueMkey compute: {kind}")
 
     def _sync_mk_gpu_panel(self) -> None:
@@ -1343,9 +1350,9 @@ class TrueNexusApp(ctk.CTk):
         if not self._mk_use_gpu() and not self.mk_try.get().strip() and not self.mk_selftest.get():
             if not messagebox.askokcancel(
                 "TrueMkey — CPU selected",
-                "Compute is set to CPU (none).\n\n"
+                "Compute is set to none (CPU only).\n\n"
                 "AES key search still needs CUDA in TrueMkeyCollider.\n"
-                "Use --try HEX for host verify, or switch Compute to cuda.\n\n"
+                "Use --try HEX for host verify, or switch to cuda / both.\n\n"
                 "Launch anyway?",
             ):
                 return
@@ -1569,7 +1576,7 @@ class TrueNexusApp(ctk.CTk):
         g.pack(fill="x", pady=8)
         self._label(g, "Default threads (-t)", text_color=self.theme["muted"]).grid(row=0, column=0, sticky="w", padx=6)
         ctk.CTkEntry(g, textvariable=self.set_threads, width=100).grid(row=1, column=0, sticky="w", padx=6)
-        self._label(g, "Default GPU (-U)", text_color=self.theme["muted"]).grid(row=0, column=1, sticky="w", padx=6)
+        self._label(g, "Default GPU (-U) none/cuda/opencl/both", text_color=self.theme["muted"]).grid(row=0, column=1, sticky="w", padx=6)
         ctk.CTkOptionMenu(g, variable=self.set_gpu, values=GPU, width=120).grid(row=1, column=1, sticky="w", padx=6)
         self._label(g, "Console refresh (GPU-safe)", text_color=self.theme["muted"]).grid(row=0, column=2, sticky="w", padx=6)
         ctk.CTkOptionMenu(

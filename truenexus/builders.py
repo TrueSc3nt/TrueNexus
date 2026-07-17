@@ -40,7 +40,7 @@ LANGS = [
     "japanese", "korean", "chinese_simplified", "chinese_traditional", "all",
     "prism",
 ]
-GPU = ["none", "cuda", "opencl"]
+GPU = ["none", "cuda", "opencl", "both"]
 VECTOR = ["auto", "none", "sse", "avx", "avx2", "avx512"]
 PATH_PACKS = [
     "btc-std", "paths-btc", "eth", "paths-eth", "ledger-eth",
@@ -281,6 +281,7 @@ class ColliderConfig:
         if self.threads:
             parts += ["-t", self.threads]
         if self.gpu and self.gpu != "none":
+            # both = CPU threads + GPU backend (engine accepts -U both → cuda hybrid)
             parts += ["-U", self.gpu]
         if self.memory:
             parts += ["-M", self.memory]
@@ -328,7 +329,7 @@ class MkeyConfig:
     pubkeys: str = ""
     mode: str = "random"
     start_key: str = ""
-    gpu: str = "cuda"  # none = CPU/host helpers; cuda = GPU search
+    gpu: str = "cuda"  # none=CPU; cuda/opencl=GPU; both=CPU+GPU
     device: str = "0"
     grid: str = "256,256"
     streams: str = "4"
@@ -359,7 +360,8 @@ class MkeyConfig:
             parts.append("-rs")
         if self.start_key:
             parts += ["-s", self.start_key]
-        use_gpu = (self.gpu or "cuda").strip().lower() not in ("none", "cpu", "")
+        g = (self.gpu or "cuda").strip().lower()
+        use_gpu = g not in ("none", "cpu", "")
         if use_gpu:
             if self.device:
                 parts += ["-d", self.device]
@@ -403,7 +405,7 @@ def explain_flag(flag: str) -> str:
         "-k": "BSGS K factor (baby table multiplier). Use auto if unsure.",
         "-S": "Save/load BSGS bloom/fuse tables to disk.",
         "-e": "GLV endomorphism (~3× coverage on secp256k1 grind modes).",
-        "-U": "GPU backend: cuda or opencl.",
+        "-U": "Compute: none (CPU), cuda, opencl, or both (CPU+GPU).",
         "-M": "Memory / VRAM budget.",
         "-t": "CPU threads.",
         "-w": "Mnemonic or brainwallet word count.",
