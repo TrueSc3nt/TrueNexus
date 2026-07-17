@@ -332,3 +332,16 @@ PUZZLE_STATUS: dict[int, str] = {
     159: "UNSOLVED",
     160: "UNSOLVED",
 }
+
+# Exposed compressed pubkeys (from puzzle creator test spends / public tables).
+# Source: https://privatekeys.pw/puzzles/bitcoin-puzzle-tx
+# These enable -m bsgs / kangaroo / hybrid-dl without address grind.
+KNOWN_PUBKEYS: dict[int, str] = {
+    125: "0233709eb11e0d4439a729f21c2c443dedb727528229713f0065721ba8fa46f00e",
+    135: "02145d2611c823a396ef6712ce0f712f09b9b4f3135e3e0aa3230fb9b6d08d1e16",
+    140: "031f6a332d3c5c4f2de2378c012f429cd109ba07d69690c6c701b6bb87860d6640",
+    145: "03afdda497369e219a2c1c369954a930e4d3740968e5e4352475bcffce3140dae5",
+    150: "03137807790ea7dc6e97901c2bc87411f45ed74a5629315c4e4b03a0a102250c49",
+    155: "035cd1854cae45391ca4ec428cc7e6c7d9984424b954209a8eea197b9e364c05f6",
+    160: "02e0a8b039282faf6fe0fd769cfbc4b6b4cf8758ba68220eac420e32b91ddfa673",
+}

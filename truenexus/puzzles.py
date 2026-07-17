@@ -5,19 +5,23 @@ Range for puzzle N is [2^(N-1) .. 2^N - 1] (N-bit keyspace).
 
 from __future__ import annotations
 
-from truenexus.puzzle_addresses import KNOWN_ADDR, PUZZLE_STATUS
+from truenexus.puzzle_addresses import KNOWN_ADDR, KNOWN_PUBKEYS, PUZZLE_STATUS
 
 # Canonical public table:
 # https://privatekeys.pw/puzzles/bitcoin-puzzle-tx
 
 __all__ = [
     "KNOWN_ADDR",
+    "KNOWN_PUBKEYS",
     "PUZZLE_STATUS",
     "puzzle_range_hex",
     "puzzle_range_display",
     "puzzle_label",
     "puzzle_short_label",
     "puzzle_status",
+    "puzzle_pubkey",
+    "has_known_pubkey",
+    "known_pubkey_puzzles",
     "all_puzzle_labels",
     "all_puzzle_short_labels",
     "parse_puzzle_number",
@@ -45,12 +49,25 @@ def puzzle_status(n: int) -> str:
     return PUZZLE_STATUS.get(n, "?")
 
 
+def puzzle_pubkey(n: int) -> str | None:
+    return KNOWN_PUBKEYS.get(n)
+
+
+def has_known_pubkey(n: int) -> bool:
+    return n in KNOWN_PUBKEYS
+
+
+def known_pubkey_puzzles() -> list[int]:
+    return sorted(KNOWN_PUBKEYS)
+
+
 def puzzle_label(n: int) -> str:
     addr = KNOWN_ADDR.get(n)
     st = puzzle_status(n)
+    pub = "  |  pubkey" if has_known_pubkey(n) else ""
     if addr:
-        return f"#{n:03d}  |  {n}-bit  |  {st}  |  {addr}"
-    return f"#{n:03d}  |  {n}-bit  |  {st}  |  {puzzle_range_display(n)}"
+        return f"#{n:03d}  |  {n}-bit  |  {st}{pub}  |  {addr}"
+    return f"#{n:03d}  |  {n}-bit  |  {st}{pub}  |  {puzzle_range_display(n)}"
 
 
 def puzzle_short_label(n: int) -> str:
@@ -97,6 +114,10 @@ def validate_puzzle(n: int) -> None:
 
 
 def recommend_mode(n: int) -> str:
+    if has_known_pubkey(n):
+        if n >= 140:
+            return "bsgs / kangaroo / hybrid-dl — known pubkey (prefer kangaroo for huge N)"
+        return "bsgs (known pubkey) — or kangaroo"
     if n <= 40:
         return "address + sequential — tiny range, great for learning"
     if n <= 70:
@@ -112,10 +133,13 @@ def write_puzzle_target_file(n: int, path: str, kind: str = "address") -> str:
     """Write a one-line target file for a puzzle. Returns path."""
     start, end = puzzle_range_hex(n)
     addr = KNOWN_ADDR.get(n)
+    pub = KNOWN_PUBKEYS.get(n)
     with open(path, "w", encoding="utf-8") as f:
         f.write(f"# Puzzle {n} | {n}-bit | range 0x{start}:0x{end}\n")
-        if kind == "address" and addr:
-            f.write(addr + "\n")
+        if kind == "pubkey":
+            if not pub:
+                raise ValueError(f"Puzzle #{n} has no known pubkey")
+            f.write(pub + "\n")
         elif addr:
             f.write(addr + "\n")
     return path

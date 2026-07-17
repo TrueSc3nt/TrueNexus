@@ -48,8 +48,12 @@ from truenexus.ideas_catalog import (
 from truenexus.builders import RECIPES as RECIPE_LABELS
 from truenexus.puzzles import (
     KNOWN_ADDR,
+    KNOWN_PUBKEYS,
+    has_known_pubkey,
+    known_pubkey_puzzles,
     parse_puzzle_number,
     puzzle_label,
+    puzzle_pubkey,
     puzzle_range_display,
     puzzle_range_hex,
     puzzle_status,
@@ -447,6 +451,7 @@ class TrueNexusApp(ctk.CTk):
         grid = ctk.CTkFrame(f, fg_color="transparent")
         grid.pack(fill="x")
         self.tc_mode = self._dropdown(grid, "Mode (-m) — ALL live + research", MODES_ALL, "address", 0, 0)
+        self.tc_mode.configure(command=self._on_tc_mode)
         self.tc_coin = self._dropdown(grid, "Coin (-c)", COINS, "btc", 0, 1)
         self.tc_look = self._dropdown(grid, "Look (-l)", LOOK, "compress", 1, 0)
         self.tc_pattern = self._dropdown(grid, "Pattern (-x)", SEARCH_PATTERNS, "chaos", 1, 1)
@@ -494,6 +499,10 @@ class TrueNexusApp(ctk.CTk):
             ctk.CTkFrame(f, fg_color="transparent"), "WIF/hex mask pattern", "", 0, 0
         )
 
+        # BSGS / DL settings — shown automatically when mode needs a pubkey
+        self.tc_bsgs_frame = ctk.CTkFrame(f, fg_color=self.theme.get("card", "#1a1a22"), corner_radius=8)
+        self._build_bsgs_controls(self.tc_bsgs_frame)
+        self._tc_bsgs_visible = False
 
         self.tc_preview = ctk.CTkTextbox(f, height=90, font=ctk.CTkFont(family="Consolas", size=13))
         self.tc_preview.pack(fill="x", pady=8)
@@ -503,6 +512,89 @@ class TrueNexusApp(ctk.CTk):
         ctk.CTkButton(row, text="Copy Command", command=lambda: self._copy_text(self.tc_preview.get("1.0", "end"))).pack(side="left", padx=4)
         ctk.CTkButton(row, text="Launch TrueCollider", fg_color=self.theme["accent"], text_color="#111",
                       command=self._launch_collider).pack(side="left", padx=4)
+        self._sync_tc_bsgs_panel()
+
+    def _mode_token(self, label: str | None = None) -> str:
+        raw = (label if label is not None else self.tc_mode.get()) or ""
+        return raw.split(" (")[0].strip().lower()
+
+    def _set_tc_mode(self, token: str) -> None:
+        """Set Mode dropdown by live token (bsgs, kangaroo, …) and refresh BSGS panel."""
+        token = (token or "").strip().lower()
+        vals = list(getattr(self.tc_mode, "_values", []) or [])
+        chosen = None
+        for v in vals:
+            if v.lower() == token or v.lower().startswith(token + " ") or v.lower().startswith(token + "("):
+                chosen = v
+                break
+            if token and token == v.split(" (")[0].strip().lower():
+                chosen = v
+                break
+        if chosen:
+            self.tc_mode.set(chosen)
+        self._on_tc_mode(chosen or token)
+
+    def _on_tc_mode(self, _value: str | None = None) -> None:
+        self._sync_tc_bsgs_panel(apply_defaults=True)
+
+    def _is_dl_mode(self, token: str | None = None) -> bool:
+        t = token or self._mode_token()
+        return t in ("bsgs", "kangaroo", "hybrid-dl", "gaudry", "xpoint")
+
+    def _sync_tc_bsgs_panel(self, apply_defaults: bool = False) -> None:
+        """Show full BSGS settings on TrueCollider when a DL/pubkey mode is selected."""
+        if not hasattr(self, "tc_bsgs_frame") or not hasattr(self, "tc_preview"):
+            return
+        token = self._mode_token()
+        show = self._is_dl_mode(token)
+        if show and not getattr(self, "_tc_bsgs_visible", False):
+            self.tc_bsgs_frame.pack(fill="x", pady=8, padx=2, before=self.tc_preview)
+            self._tc_bsgs_visible = True
+        elif not show and getattr(self, "_tc_bsgs_visible", False):
+            self.tc_bsgs_frame.pack_forget()
+            self._tc_bsgs_visible = False
+        if show and apply_defaults:
+            self._apply_bsgs_defaults(token)
+
+    def _apply_bsgs_defaults(self, token: str | None = None) -> None:
+        token = token or self._mode_token()
+        if hasattr(self, "tc_save"):
+            self.tc_save.select()
+        if token == "hybrid-dl" and hasattr(self, "bsgs_strat"):
+            for v in getattr(self.bsgs_strat, "_values", []) or []:
+                if v.split(" (")[0].strip().lower() == "handoff":
+                    self.bsgs_strat.set(v)
+                    break
+        if hasattr(self, "bsgs_h") and hasattr(self, "tc_handoff"):
+            h = self.bsgs_h.get().strip() or self.tc_handoff.get().strip() or "44"
+            self.bsgs_h.set(h)
+            self.tc_handoff.set(h)
+        self._set_status(f"TrueCollider: {token} — BSGS / DL settings ready")
+
+    def _build_bsgs_controls(self, parent) -> None:
+        """Shared BSGS / hybrid-DL controls (TrueCollider panel)."""
+        pad = ctk.CTkFrame(parent, fg_color="transparent")
+        pad.pack(fill="x", padx=10, pady=8)
+        self._section(pad, "BSGS / DL settings (-B -k -n -H)")
+        self._label(
+            pad,
+            "Shown automatically for bsgs · kangaroo · hybrid-dl · gaudry · xpoint.\n"
+            "Need a compressed/uncompressed pubkey in -f. Puzzle known-pubkey list: "
+            + ", ".join(str(n) for n in known_pubkey_puzzles()),
+            text_color=self.theme["muted"],
+        ).pack(anchor="w", pady=(0, 6))
+        g = ctk.CTkFrame(pad, fg_color="transparent")
+        g.pack(fill="x")
+        self.bsgs_strat = self._dropdown(g, "Strategy (-B) — ALL live + research", BSGS_STRATEGIES, "random", 0, 0)
+        self.bsgs_k = self._entry(g, "K factor (-k)", "auto", 0, 1)
+        self.bsgs_n = self._entry(g, "Table N (-n)", "0x100000000000", 1, 0)
+        self.bsgs_mod = self._entry(g, "Residue M:R (Gaudry/ResidueHerd)", "", 1, 1)
+        self.bsgs_r2 = self._entry(g, "Dual-range second START:END", "", 2, 0)
+        self.bsgs_h = self._entry(g, "Handoff pocket bits -H", "44", 2, 1)
+        self.bsgs_freeze = ctk.CTkCheckBox(g, text="freeze-table (research)")
+        self.bsgs_freeze.grid(row=3, column=0, sticky="w", padx=6, pady=4)
+        self.bsgs_batch = ctk.CTkCheckBox(g, text="batched-gpu-giants (research)")
+        self.bsgs_batch.grid(row=3, column=1, sticky="w", padx=6, pady=4)
 
     def _path_row(self, parent, label, var, directory=False, exe=False):
         self._label(parent, label, text_color=self.theme["muted"]).pack(anchor="w", pady=(8, 2))
@@ -689,7 +781,8 @@ class TrueNexusApp(ctk.CTk):
             f,
             "Type a puzzle number 1..160 (or use the slider). Ranges are exact: "
             "puzzle N = [2^(N-1) .. 2^N - 1].\n"
-            "All 160 official addresses are built-in. Auto-write creates the -f target file.",
+            "Target: Address grind, or Known pubkey → auto-switches TrueCollider to BSGS settings.\n"
+            f"Known pubkeys built-in: {', '.join(str(n) for n in known_pubkey_puzzles())}.",
             text_color=self.theme["muted"],
         ).pack(anchor="w")
 
@@ -704,6 +797,22 @@ class TrueNexusApp(ctk.CTk):
         ctk.CTkButton(row, text="Go", width=60, command=self._refresh_puzzle).pack(side="left", padx=4)
         ctk.CTkButton(row, text="-1", width=40, command=lambda: self._nudge_puzzle(-1)).pack(side="left", padx=2)
         ctk.CTkButton(row, text="+1", width=40, command=lambda: self._nudge_puzzle(1)).pack(side="left", padx=2)
+
+        kind_row = ctk.CTkFrame(f, fg_color="transparent")
+        kind_row.pack(fill="x", pady=4)
+        self._label(kind_row, "Target type", text_color=self.theme["muted"]).pack(side="left", padx=(0, 8))
+        self.puzzle_kind = ctk.CTkOptionMenu(
+            kind_row,
+            values=["Address (grind)", "Known pubkey (BSGS)"],
+            width=220,
+            command=self._on_puzzle_kind,
+        )
+        self.puzzle_kind.set("Address (grind)")
+        self.puzzle_kind.pack(side="left", padx=4)
+        ctk.CTkButton(
+            kind_row, text="Jump to next known pubkey", width=180,
+            command=self._jump_known_pubkey_puzzle,
+        ).pack(side="left", padx=8)
 
         self.puzzle_slider = ctk.CTkSlider(
             f, from_=1, to=160, number_of_steps=159, command=self._on_puzzle_slider
@@ -752,6 +861,43 @@ class TrueNexusApp(ctk.CTk):
         self.puzzle_num.set(str(n))
         self._refresh_puzzle()
 
+    def _on_puzzle_kind(self, value: str) -> None:
+        if "pubkey" in (value or "").lower():
+            n = self._current_puzzle()
+            if not has_known_pubkey(n):
+                nxt = self._next_known_pubkey(n)
+                if nxt:
+                    self.puzzle_num.set(str(nxt))
+                    self.puzzle_slider.set(nxt)
+            self._refresh_puzzle()
+            self._set_status("Puzzle target: known pubkey → will apply BSGS settings")
+        else:
+            self._refresh_puzzle()
+
+    def _next_known_pubkey(self, from_n: int) -> int | None:
+        pubs = known_pubkey_puzzles()
+        for n in pubs:
+            if n > from_n:
+                return n
+        return pubs[0] if pubs else None
+
+    def _jump_known_pubkey_puzzle(self) -> None:
+        n = self._current_puzzle()
+        pubs = known_pubkey_puzzles()
+        nxt = self._next_known_pubkey(n) or (pubs[0] if pubs else None)
+        if nxt is None:
+            messagebox.showinfo("Known pubkeys", "No known-pubkey puzzles in catalog.")
+            return
+        self.puzzle_num.set(str(nxt))
+        self.puzzle_slider.set(nxt)
+        self.puzzle_kind.set("Known pubkey (BSGS)")
+        self._refresh_puzzle()
+        self._set_status(f"Jumped to puzzle #{nxt} (known pubkey)")
+
+    def _puzzle_uses_pubkey(self) -> bool:
+        kind = self.puzzle_kind.get() if hasattr(self, "puzzle_kind") else ""
+        return "pubkey" in (kind or "").lower()
+
     def _refresh_puzzle(self) -> None:
         n = self._current_puzzle()
         try:
@@ -761,6 +907,8 @@ class TrueNexusApp(ctk.CTk):
         start, end = puzzle_range_hex(n)
         addr = KNOWN_ADDR.get(n, "(missing address)")
         st = puzzle_status(n)
+        pub = puzzle_pubkey(n)
+        pub_line = f"Pubkey:  {pub}\n" if pub else "Pubkey:  (none known — address grind only)\n"
         txt = (
             f"{puzzle_label(n)}\n"
             f"Source: https://privatekeys.pw/puzzles/bitcoin-puzzle-tx\n"
@@ -769,6 +917,7 @@ class TrueNexusApp(ctk.CTk):
             f"Range: {puzzle_range_display(n)}\n"
             f"CLI:  -b {n}   or   -r {start}:{end}\n"
             f"Address: {addr}\n"
+            f"{pub_line}"
             f"Recommended: {recommend_mode(n)}\n"
         )
         self.puzzle_info.delete("1.0", "end")
@@ -780,9 +929,27 @@ class TrueNexusApp(ctk.CTk):
         self.tc_bits.set(str(n))
         self.tc_r0.set(start)
         self.tc_r1.set(end)
-        # Prefer address grind; bsgs/kangaroo need a pubkey file
+        use_pub = self._puzzle_uses_pubkey()
+        if use_pub:
+            if not has_known_pubkey(n):
+                messagebox.showwarning(
+                    "No known pubkey",
+                    f"Puzzle #{n} has no built-in pubkey.\n"
+                    f"Known: {', '.join(str(x) for x in known_pubkey_puzzles())}",
+                )
+                return
+            mode = "kangaroo" if n >= 145 else "bsgs"
+            self._set_tc_mode(mode)
+            try:
+                self._write_puzzle_file()
+            except Exception as exc:
+                messagebox.showerror("Pubkey target", str(exc))
+                return
+            self.tabs.set("TrueCollider")
+            self._set_status(f"Applied puzzle #{n} as {mode} (known pubkey)")
+            return
         try:
-            self.tc_mode.set("address")
+            self._set_tc_mode("address")
         except Exception:
             pass
         try:
@@ -794,16 +961,24 @@ class TrueNexusApp(ctk.CTk):
 
     def _write_puzzle_file(self) -> None:
         n = self._current_puzzle()
-        if n not in KNOWN_ADDR:
-            messagebox.showwarning("No address", "Puzzle address missing from catalog.")
-            return
-        # Default into workdir / presets without forcing a save dialog every time
+        use_pub = self._puzzle_uses_pubkey()
+        if use_pub:
+            if not has_known_pubkey(n):
+                messagebox.showwarning("No pubkey", f"Puzzle #{n} has no known pubkey.")
+                return
+            kind = "pubkey"
+        else:
+            if n not in KNOWN_ADDR:
+                messagebox.showwarning("No address", "Puzzle address missing from catalog.")
+                return
+            kind = "address"
         out_dir = Path(self.tc_cwd.get().strip() or ROOT / "presets")
         out_dir.mkdir(parents=True, exist_ok=True)
-        path = str(out_dir / f"puzzle_{n}.txt")
-        write_puzzle_target_file(n, path)
+        suffix = "pub" if kind == "pubkey" else "addr"
+        path = str(out_dir / f"puzzle_{n}_{suffix}.txt")
+        write_puzzle_target_file(n, path, kind=kind)
         self.tc_target.set(path)
-        self._append_console(f"[TrueNexus] Wrote puzzle target: {path}\n")
+        self._append_console(f"[TrueNexus] Wrote puzzle target ({kind}): {path}\n")
         self._set_status(f"Wrote {path}")
         return path
 
@@ -898,7 +1073,7 @@ class TrueNexusApp(ctk.CTk):
         ).pack(anchor="w")
 
     def _apply_mnemonic(self) -> None:
-        self.tc_mode.set("mnemonic")
+        self._set_tc_mode("mnemonic")
         self.mn_words.set(self.mn_words_menu.get())
         self.mn_lang.set(self.mn_lang_menu.get())
         self.tabs.set("TrueCollider")
@@ -916,23 +1091,11 @@ class TrueNexusApp(ctk.CTk):
         self._section(f, "Baby-Step Giant-Step & hybrid DL")
         self._label(
             f,
-            "Live strategies: sequential / backward / both / random / dance.\n"
-            "Research: grumpy, interleave, orbit, residue, handoff (HerdHandoff), negmap, nested, async-resolve…",
+            "Full BSGS controls live on the TrueCollider tab and appear automatically\n"
+            "when you select bsgs / kangaroo / hybrid-dl / gaudry / xpoint.\n"
+            "Puzzles → Target type “Known pubkey (BSGS)” also switches those settings.",
             text_color=self.theme["muted"],
         ).pack(anchor="w")
-
-        g = ctk.CTkFrame(f, fg_color="transparent")
-        g.pack(fill="x")
-        self.bsgs_strat = self._dropdown(g, "Strategy (-B) — ALL live + research", BSGS_STRATEGIES, "random", 0, 0)
-        self.bsgs_k = self._entry(g, "K factor (-k)", "auto", 0, 1)
-        self.bsgs_n = self._entry(g, "Table N (-n)", "0x100000000000", 1, 0)
-        self.bsgs_mod = self._entry(g, "Residue M:R (Gaudry/ResidueHerd)", "", 1, 1)
-        self.bsgs_r2 = self._entry(g, "Dual-range second START:END", "", 2, 0)
-        self.bsgs_h = self._entry(g, "Handoff pocket bits -H", "44", 2, 1)
-        self.bsgs_freeze = ctk.CTkCheckBox(g, text="freeze-table (research)")
-        self.bsgs_freeze.grid(row=3, column=0, sticky="w", padx=6, pady=4)
-        self.bsgs_batch = ctk.CTkCheckBox(g, text="batched-gpu-giants (research)")
-        self.bsgs_batch.grid(row=3, column=1, sticky="w", padx=6, pady=4)
 
         tips = (
             "Live: sequential · backward · both · random · dance\n"
@@ -940,19 +1103,19 @@ class TrueNexusApp(ctk.CTk):
             "async-resolve · multi-target · negmap · handoff · gravity/chaos/sobol-giant ·\n"
             "freeze-table · compact-dp\n"
             "RAM guide: 8G→-k512 | 16G→-k1024 | 32G→-k2048 | Prefer kangaroo when N is huge.\n"
+            f"Known-pubkey puzzles: {', '.join(str(n) for n in known_pubkey_puzzles())}\n"
         )
         self._label(f, tips, justify="left").pack(anchor="w", pady=8)
         row = ctk.CTkFrame(f, fg_color="transparent")
         row.pack(fill="x")
-        ctk.CTkButton(row, text="Apply BSGS → TrueCollider", command=self._apply_bsgs).pack(side="left", padx=4)
+        ctk.CTkButton(row, text="Open TrueCollider BSGS settings", command=self._apply_bsgs).pack(side="left", padx=4)
         ctk.CTkButton(row, text="Launch", fg_color=self.theme["accent"], text_color="#111",
                       command=self._launch_bsgs).pack(side="left", padx=4)
 
     def _apply_bsgs(self) -> None:
-        self.tc_mode.set("bsgs")
-        self.tc_save.select()
+        self._set_tc_mode("bsgs")
         self.tabs.set("TrueCollider")
-        self._set_status("BSGS lab applied")
+        self._set_status("BSGS settings shown on TrueCollider")
 
     def _launch_bsgs(self) -> None:
         self._apply_bsgs()
@@ -992,10 +1155,8 @@ class TrueNexusApp(ctk.CTk):
 
     def _apply_address(self) -> None:
         mode = self.addr_mode.get().split(" (")[0]
-        self.tc_mode.set(mode if mode in MODES_LIVE else "rmd160")
-        if hasattr(self, "addr_stride") and self.addr_stride.get().strip():
-            # stash into extra if numeric
-            pass
+        token = mode if mode in MODES_LIVE else "rmd160"
+        self._set_tc_mode(token)
         self.tabs.set("TrueCollider")
 
     # ── WeakRNG / CrystalPRNG ───────────────────────────────────────────
@@ -1028,21 +1189,12 @@ class TrueNexusApp(ctk.CTk):
         ctk.CTkButton(row, text="Also set mnemonic milksad", command=self._apply_mn_milksad).pack(side="left", padx=4)
 
     def _apply_weakrng(self) -> None:
-        # Pick exact dropdown value (live or annotated)
-        chosen = "weakrng"
-        for v in MODES_ALL:
-            if v.split(" (")[0].strip().lower() == "weakrng":
-                chosen = v
-                break
-        try:
-            self.tc_mode.set(chosen)
-        except Exception:
-            pass
+        self._set_tc_mode("weakrng")
         self.tabs.set("TrueCollider")
         self._set_status(f"WeakRNG {self.wr_sub.get()} applied")
 
     def _apply_mn_milksad(self) -> None:
-        self.tc_mode.set("mnemonic")
+        self._set_tc_mode("mnemonic")
         if hasattr(self, "mn_sub"):
             # find milksad in list
             for v in MNEMONIC_SUBMODES:
@@ -1254,9 +1406,9 @@ class TrueNexusApp(ctk.CTk):
         }
         for k, (mode, pattern) in mapping.items():
             if k in key:
-                self.tc_mode.set(mode)
+                token = mode.split(" (")[0].strip().lower()
+                self._set_tc_mode(token)
                 if pattern and hasattr(self, "tc_pattern"):
-                    # try set pattern if exists in menu values
                     try:
                         self.tc_pattern.set(pattern)
                     except Exception:
@@ -1264,17 +1416,18 @@ class TrueNexusApp(ctk.CTk):
                 if "bsgs" in k and hasattr(self, "bsgs_strat"):
                     for v in ("grumpy", "orbit", "handoff"):
                         if v in k:
-                            for opt in self.bsgs_strat._values if hasattr(self.bsgs_strat, "_values") else []:
-                                pass
                             try:
                                 self.bsgs_strat.set(f"{v} (research)")
                             except Exception:
-                                pass
+                                for opt in getattr(self.bsgs_strat, "_values", []) or []:
+                                    if opt.split(" (")[0].strip().lower() == v:
+                                        self.bsgs_strat.set(opt)
+                                        break
                 if "mnemonic" in k and hasattr(self, "mn_sub"):
-                    for token in ("mask", "pass-dict", "electrum-v2", "milksad", "model"):
-                        if token.replace("pass-dict", "pass") in k or token in k:
+                    for mtoken in ("mask", "pass-dict", "electrum-v2", "milksad", "model"):
+                        if mtoken.replace("pass-dict", "pass") in k or mtoken in k:
                             for v in MNEMONIC_SUBMODES:
-                                if token.split("-")[0] in v or token in v:
+                                if mtoken.split("-")[0] in v or mtoken in v:
                                     self.mn_sub.set(v)
                                     break
                 if "weakrng" in k:
