@@ -45,6 +45,7 @@ VECTOR = ["auto", "none", "sse", "avx", "avx2", "avx512"]
 PATH_PACKS = [
     "btc-std", "paths-btc", "eth", "paths-eth", "ledger-eth",
     "electrum", "paths-electrum", "custom", "account-sweep",
+    "gap-limit", "multicoin", "all-coins",
 ]
 RECIPES = recipe_labels()
 

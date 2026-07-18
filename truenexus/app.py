@@ -48,6 +48,9 @@ from truenexus.ideas_catalog import (
 from truenexus.builders import RECIPES as RECIPE_LABELS
 from truenexus.directory import directory_stats, format_entry, search_directory
 from truenexus.idea_labs import LAB_SPECS, lab_labels
+from truenexus.wallet_forensics import export_for_truemkey, inspect_wallet_dat
+from truenexus.chain_rpc import sync_chain_rpcs, list_main_rpcs, default_chains_dir
+from truenexus.tools_registry import all_tools, search_tools, tools_stats
 from truenexus.puzzles import (
     KNOWN_ADDR,
     KNOWN_PUBKEYS,
@@ -247,6 +250,9 @@ class TrueNexusApp(ctk.CTk):
             "Multi-coin Lab",
             "Research 2026",
             "TrueMkey",
+            "Wallet Lab",
+            "Tools Arsenal",
+            "Chain RPCs",
             "Address Watch",
             "Ideas Matrix",
             "Roadmap",
@@ -316,6 +322,9 @@ class TrueNexusApp(ctk.CTk):
         self._build_weakrng()
         self._build_idea_labs()  # Passphrase, PathNova, Kangaroo, Shadow160, …
         self._build_mkey()
+        self._build_wallet_lab()
+        self._build_tools_arsenal()
+        self._build_chain_rpcs()
         self._build_watch()
         self._build_ideas()
         self._build_roadmap()
@@ -1850,6 +1859,159 @@ class TrueNexusApp(ctk.CTk):
             self.settings["default_gpu"] = self.mk_gpu.get()
         cwd = str(Path(self.mk_exe.get()).parent) if self.mk_exe.get() else None
         self.runner.start(cmd, cwd=cwd)
+
+    # ── Wallet Lab (wallet.dat forensics → TrueMkey) ───────────────────
+    def _build_wallet_lab(self) -> None:
+        tab = self.tabs.tab("Wallet Lab")
+        f = self._scroll(tab)
+        f.pack(fill="both", expand=True)
+        self._section(f, "wallet.dat forensic inspector")
+        self._label(
+            f,
+            "Breaks Bitcoin Core wallet.dat into mkey / ckey / pubkey pieces for TrueMkeyCollider.\n"
+            "Does NOT crack passwords. Copy blobs or click Send → TrueMkey to prefill paths.",
+            text_color=self.theme["muted"],
+        ).pack(anchor="w")
+        self.wl_path = ctk.StringVar()
+        self._path_row(f, "wallet.dat", self.wl_path)
+        row = ctk.CTkFrame(f, fg_color="transparent")
+        row.pack(fill="x", pady=6)
+        ctk.CTkButton(row, text="Inspect", command=self._wallet_inspect).pack(side="left", padx=4)
+        ctk.CTkButton(row, text="Export files", command=self._wallet_export).pack(side="left", padx=4)
+        ctk.CTkButton(
+            row, text="Send → TrueMkey", fg_color=self.theme["accent"], text_color="#111",
+            command=self._wallet_send_mkey,
+        ).pack(side="left", padx=4)
+        ctk.CTkButton(row, text="Copy report", command=lambda: self._copy_text(self.wl_report.get("1.0", "end"))).pack(side="left", padx=4)
+        self.wl_report = ctk.CTkTextbox(f, height=420, font=ctk.CTkFont(family="Consolas", size=12))
+        self.wl_report.pack(fill="both", expand=True, pady=8)
+        self._wallet_last = None
+        self._wallet_export_paths = {}
+
+    def _wallet_inspect(self) -> None:
+        p = self.wl_path.get().strip()
+        if not p:
+            messagebox.showwarning("Wallet Lab", "Select a wallet.dat file first.")
+            return
+        try:
+            rep = inspect_wallet_dat(p)
+            self._wallet_last = rep
+            self.wl_report.delete("1.0", "end")
+            self.wl_report.insert("1.0", rep.summary_text())
+            self._set_status(f"Wallet inspected: {len(rep.mkeys)} mkey, {len(rep.ckeys)} ckey, {len(rep.pubkeys)} pubs")
+        except Exception as e:
+            messagebox.showerror("Wallet Lab", str(e))
+
+    def _wallet_export(self) -> None:
+        if not self._wallet_last:
+            self._wallet_inspect()
+        if not self._wallet_last:
+            return
+        out = Path(self.settings.get("workdir") or ".") / "wallet_extract"
+        try:
+            paths = export_for_truemkey(self._wallet_last, out)
+            self._wallet_export_paths = paths
+            self.wl_report.insert("end", f"\n\nExported:\n" + "\n".join(f"  {k}: {v}" for k, v in paths.items()))
+            self._set_status(f"Exported wallet blobs → {out}")
+        except Exception as e:
+            messagebox.showerror("Wallet Lab", str(e))
+
+    def _wallet_send_mkey(self) -> None:
+        self._wallet_export()
+        paths = self._wallet_export_paths or {}
+        if not paths:
+            return
+        if hasattr(self, "mk_mkeys") and paths.get("mkeys"):
+            self.mk_mkeys.set(paths["mkeys"])
+        if hasattr(self, "mk_ckeys") and paths.get("ckeys"):
+            self.mk_ckeys.set(paths["ckeys"])
+        if hasattr(self, "mk_pubs") and paths.get("pubkeys"):
+            self.mk_pubs.set(paths["pubkeys"])
+        self.tabs.set("TrueMkey")
+        if hasattr(self, "_preview_mkey"):
+            self._preview_mkey()
+        self._set_status("Prefilled TrueMkey from wallet.dat extract — review and Launch")
+        messagebox.showinfo(
+            "Sent to TrueMkey",
+            "mkey / ckey / pubkey files prefilling TrueMkey tab.\n"
+            "Open TrueMkey, review Preview, then Launch.",
+        )
+
+    # ── Tools Arsenal (100+ registry) ───────────────────────────────────
+    def _build_tools_arsenal(self) -> None:
+        tab = self.tabs.tab("Tools Arsenal")
+        f = self._scroll(tab)
+        f.pack(fill="both", expand=True)
+        self._section(f, "Tools Arsenal — every integrated capability")
+        self._label(f, tools_stats(), text_color=self.theme["muted"]).pack(anchor="w")
+        row = ctk.CTkFrame(f, fg_color="transparent")
+        row.pack(fill="x", pady=4)
+        self.tools_q = ctk.StringVar()
+        ctk.CTkEntry(row, textvariable=self.tools_q, placeholder_text="search tools…", width=280).pack(side="left", padx=4)
+        ctk.CTkButton(row, text="Search", command=self._tools_refresh).pack(side="left", padx=4)
+        ctk.CTkButton(row, text="Show all", command=lambda: (self.tools_q.set(""), self._tools_refresh())).pack(side="left", padx=4)
+        self.tools_list = ctk.CTkTextbox(f, height=480, font=ctk.CTkFont(family="Consolas", size=12))
+        self.tools_list.pack(fill="both", expand=True, pady=8)
+        self._tools_refresh()
+
+    def _tools_refresh(self) -> None:
+        hits = search_tools(self.tools_q.get() if hasattr(self, "tools_q") else "")
+        lines = [f"{len(hits)} tools\n"]
+        for t in hits:
+            gpu = " GPU" if t.get("gpu") else ""
+            lines.append(
+                f"[{t.get('status','?'):7}]{gpu:4}  {t.get('name','')}  |  {t.get('kind','')}  |  {t.get('cli','')}"
+            )
+        self.tools_list.delete("1.0", "end")
+        self.tools_list.insert("1.0", "\n".join(lines))
+
+    # ── Chain RPCs (chainid.network implant) ────────────────────────────
+    def _build_chain_rpcs(self) -> None:
+        tab = self.tabs.tab("Chain RPCs")
+        f = self._scroll(tab)
+        f.pack(fill="both", expand=True)
+        self._section(f, "Public chain RPC catalog (chainid.network)")
+        self._label(
+            f,
+            "Implanted from your chain-dev-download-rpc.py — downloads public HTTP RPCs\n"
+            f"into {default_chains_dir()}. Use with -N node checks / multi-coin research.",
+            text_color=self.theme["muted"],
+        ).pack(anchor="w")
+        row = ctk.CTkFrame(f, fg_color="transparent")
+        row.pack(fill="x", pady=6)
+        ctk.CTkButton(row, text="Sync RPCs now", fg_color=self.theme["accent"], text_color="#111",
+                      command=self._chain_rpc_sync).pack(side="left", padx=4)
+        ctk.CTkButton(row, text="Refresh main coins", command=self._chain_rpc_show).pack(side="left", padx=4)
+        self.rpc_view = ctk.CTkTextbox(f, height=420, font=ctk.CTkFont(family="Consolas", size=12))
+        self.rpc_view.pack(fill="both", expand=True, pady=8)
+        self._chain_rpc_show()
+
+    def _chain_rpc_sync(self) -> None:
+        try:
+            msg = sync_chain_rpcs()
+            self.rpc_view.delete("1.0", "end")
+            self.rpc_view.insert("1.0", msg + "\n\n")
+            self._chain_rpc_show(append=True)
+            self._set_status(msg)
+        except Exception as e:
+            messagebox.showerror("Chain RPCs", f"Sync failed:\n{e}")
+
+    def _chain_rpc_show(self, append: bool = False) -> None:
+        mains = list_main_rpcs()
+        lines = ["Main coins (from last sync):\n"]
+        if not mains:
+            lines.append("(no index yet — click Sync RPCs now)\n")
+        for row in mains:
+            lines.append(
+                f"  chainId={row.get('chainId')}  {row.get('name')}  "
+                f"rpcs={row.get('rpc_count')}  file={row.get('file')}"
+            )
+        text = "\n".join(lines)
+        if append:
+            self.rpc_view.insert("end", text)
+        else:
+            self.rpc_view.delete("1.0", "end")
+            self.rpc_view.insert("1.0", text)
 
     # ── Address Watch (lawful alert-only) ───────────────────────────────
     def _build_watch(self) -> None:
