@@ -39,7 +39,8 @@ if exist "%SRC_MK%\data" robocopy "%SRC_MK%\data" "%DST_MK%\data" /E /NFL /NDL /
 if exist "%SRC_MK%\docs" robocopy "%SRC_MK%\docs" "%DST_MK%\docs" /E /NFL /NDL /NJH /NJS /nc /ns /np >nul
 
 echo [+] Updating presets\user_settings.json ...
-python -c "import json; from pathlib import Path; root=Path(r'%~dp0').resolve(); tc=root/'tools'/'TrueCollider'; mk=root/'tools'/'TrueMkeyCollider'; p=root/'presets'; p.mkdir(exist_ok=True); f=p/'user_settings.json'; cfg=json.loads(f.read_text(encoding='utf-8')) if f.exists() else {}; cfg.update({'truecollider_exe': str(tc/'keyhunt.exe'), 'truecollider_cuda': str(tc/'keyhunt_cuda.exe'), 'truemkey_exe': str(mk/'TrueMkeyCollider.exe'), 'workdir': str(tc), 'auto_configured': True}); f.write_text(json.dumps(cfg, indent=2), encoding='utf-8'); print('settings ok')"
+REM Use cwd (cd above). Do not embed %~dp0 in a Python r'...' string (trailing \).
+python -c "import json; from pathlib import Path; root=Path('.').resolve(); tc=root/'tools'/'TrueCollider'; mk=root/'tools'/'TrueMkeyCollider'; p=root/'presets'; p.mkdir(exist_ok=True); f=p/'user_settings.json'; cfg=json.loads(f.read_text(encoding='utf-8')) if f.exists() else {}; cfg.update({'truecollider_exe': str(tc/'keyhunt.exe'), 'truecollider_cuda': str(tc/'keyhunt_cuda.exe'), 'truemkey_exe': str(mk/'TrueMkeyCollider.exe'), 'workdir': str(tc), 'auto_configured': True}); f.write_text(json.dumps(cfg, indent=2), encoding='utf-8'); print('settings ok')"
 
 echo.
 echo Done. Bundled under:
