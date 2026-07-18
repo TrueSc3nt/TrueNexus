@@ -94,7 +94,7 @@ MODE_HOWTO: list[tuple[str, str, str]] = [
 PATTERN_HOWTO: list[tuple[str, str, str]] = [
     ("sequential", "LIVE", "Linear walk from range start. Best for tiny ranges / verification."),
     ("random", "LIVE", "Uniform random bases in range. Good default exploration."),
-    ("rseq / -rs", "LIVE", "Random start, walk N keys, reseed. Chunk coverage without full sequential."),
+    ("rseq / -rs / -B rseq", "LIVE", "Random start, walk --walk keys (1M/1B/1T), reseed. Collider Lab: Search mode → rseq."),
     ("chaos", "LIVE", "Logistic-map ergodic starts — fills space without RNG clustering."),
     ("gravity", "LIVE", "Bias toward last hit region (70/30). After first find, concentrates search."),
     ("spiral", "LIVE", "Archimedean spiral from range midpoint — hits 'round' midpoints first."),

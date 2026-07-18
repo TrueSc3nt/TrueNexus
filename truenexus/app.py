@@ -1969,6 +1969,24 @@ class TrueNexusApp(ctk.CTk):
             ["Collider.exe (original)", "TrueCollider bridge (keyhunt)"],
             "TrueCollider bridge (keyhunt)", 3, 1,
         )
+        self.col_mode = self._dropdown(
+            g, "Search mode",
+            ["random", "sequential", "rseq (random→sequential chunk)"],
+            "random", 4, 0,
+        )
+        self.col_walk = self._dropdown(
+            g, "Rseq walk chunk (--walk)",
+            ["1M (default)", "2M", "10M", "100M", "1B", "1T", "custom…"],
+            "1M (default)", 4, 1,
+        )
+        self.col_walk_custom = self._entry(g, "Custom walk (keys)", "5000000", 5, 0)
+        self.col_rbits = self._entry(g, "Collider.exe -r bits (random)", "120", 5, 1)
+        self._label(
+            f,
+            "Modes: random = jump starts · sequential = linear giants · "
+            "rseq = random key then walk chunk (1M/1B/1T) then reseed.",
+            text_color=self.theme["muted"],
+        ).pack(anchor="w", pady=(2, 0))
         self.col_preview = ctk.CTkTextbox(f, height=100, font=ctk.CTkFont(family="Consolas", size=13))
         self.col_preview.pack(fill="x", pady=6)
         row = ctk.CTkFrame(f, fg_color="transparent")
@@ -1977,6 +1995,13 @@ class TrueNexusApp(ctk.CTk):
         ctk.CTkButton(row, text="Launch", fg_color=self.theme["accent"], text_color="#111",
                       command=self._collider_launch).pack(side="left", padx=4)
         ctk.CTkButton(row, text="Copy", command=lambda: self._copy_text(self.col_preview.get("1.0", "end"))).pack(side="left", padx=4)
+
+    def _collider_walk_token(self) -> str:
+        w = self.col_walk.get() if hasattr(self, "col_walk") else "1M (default)"
+        if "custom" in w.lower():
+            return (self.col_walk_custom.get().strip() if hasattr(self, "col_walk_custom") else "") or "5000000"
+        # "1M (default)" → 1M, "1B" → 1B
+        return w.split()[0] if w else "1M"
 
     def _collider_preview(self) -> None:
         eng = self.col_engine.get() if hasattr(self, "col_engine") else ""
@@ -1987,9 +2012,19 @@ class TrueNexusApp(ctk.CTk):
         w = self.col_w.get().strip() or "22"
         htsz = self.col_htsz.get().strip() or "26"
         dev = self.col_dev.get().strip() or "0"
+        mode_raw = self.col_mode.get() if hasattr(self, "col_mode") else "random"
+        if mode_raw.startswith("rseq"):
+            mode = "rseq"
+        elif mode_raw.startswith("sequential"):
+            mode = "sequential"
+        else:
+            mode = "random"
+        walk = self._collider_walk_token()
         if "TrueCollider" in eng:
             exe = self.settings.get("truecollider_cuda") or self.settings.get("truecollider_exe") or "keyhunt_cuda.exe"
-            parts = [f'"{exe}"', "-m", "bsgs", "-U", "cuda", "-B", "random"]
+            parts = [f'"{exe}"', "-m", "bsgs", "-U", "cuda", "--mode", mode]
+            if mode == "rseq":
+                parts += ["--walk", walk]
             if pb:
                 parts += ["--pb", pb]
             if infile:
@@ -2011,6 +2046,11 @@ class TrueNexusApp(ctk.CTk):
                 parts += ["-pk", pk]
             if pke:
                 parts += ["-pke", pke]
+            # Original Collider: -r BITS = random bit-space test (no native rseq)
+            if mode == "random":
+                rbits = self.col_rbits.get().strip() if hasattr(self, "col_rbits") else "120"
+                if rbits:
+                    parts += ["-r", rbits]
             cmd = " ".join(parts)
         self.col_preview.delete("1.0", "end")
         self.col_preview.insert("1.0", cmd)

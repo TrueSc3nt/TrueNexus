@@ -124,6 +124,7 @@ BSGS = [
     ("sobol-giant", "live", "LDS giant starts"),
     ("freeze-table", "live", "Never rotate fuse slots once full"),
     ("compact-dp", "live", "16-byte DP entries for hybrid"),
+    ("rseq", "live", "Random start → sequential walk (--walk 2M|1B|1T) → reseed"),
 ]
 
 BSGS_IMPL = [

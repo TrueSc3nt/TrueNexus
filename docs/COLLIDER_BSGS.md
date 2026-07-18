@@ -19,6 +19,19 @@ TrueNexus ships:
 | `-htsz 26` | `--htsz 26` (soft-maps bloom multiplier) |
 | `-wl` / `-wt` | `--wl` / `--wt` (workfile / autosave seconds) |
 | `-d 0` | Collider Lab only on original; TrueCollider uses `-U cuda` |
+| `-r BITS` (random) | `--mode random` (Collider bridge **default**) |
+| *(no native rseq)* | `--mode rseq --walk 2M\|1B\|1T` or `-B rseq` |
+| sequential giants | `--mode sequential` or `-B sequential` |
+
+### Search modes (TrueCollider bridge)
+
+| Mode | Behavior |
+|------|----------|
+| `random` | New random giant start every step (default for Collider bridge) |
+| `sequential` | Linear giants from range start |
+| `rseq` | Random start → walk `--walk` keys sequentially → reseed |
+
+Walk accepts `2M`, `10M`, `1B`, `1T`, `5000000`, `0x100000`, `billion`, etc.
 
 ## Puzzle recipe (example #125)
 
