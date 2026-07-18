@@ -1,7 +1,12 @@
-"""wallet.dat forensic inspector — extract mkey/ckey/pubs for TrueMkeyCollider.
+"""wallet.dat forensic inspector — full piece-by-piece extract for TrueMkeyCollider.
 
-Does not crack passwords. Parses Bitcoin Core BDB wallet.dat by scanning
-known record tags and 48-byte AES blobs + secp hex for copy/paste or Send→TrueMkey.
+Parses Bitcoin Core BDB wallet.dat:
+  - CompactSize + CMasterKey (mkey)
+  - ckey records (pubkey in key, 48-byte AES blob in value)
+  - plain key / name / version / pool / hdchain tags
+  - SQLite descriptor-wallet detection
+
+Does NOT crack passwords. Export → Send→TrueMkey prefills -mckey/-ckeys/-pubkeys.
 """
 
 from __future__ import annotations
@@ -11,37 +16,19 @@ import re
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable
-
-
-TAG_STRINGS = (
-    b"mkey",
-    b"ckey",
-    b"key",
-    b"wkey",
-    b"name",
-    b"version",
-    b"minversion",
-    b"bestblock",
-    b"defaultkey",
-    b"pool",
-    b"hdchain",
-    b"hdpubkey",
-    b"purpose",
-    b"destdata",
-    b"watchs",
-    b"cscript",
-    b"tx",
-)
 
 
 @dataclass
 class ExtractedBlob:
-    kind: str  # mkey | ckey | key | other
+    kind: str  # mkey | ckey | key | meta
     enc_hex: str = ""
     pubkey_hex: str = ""
     offset: int = 0
     note: str = ""
+    iterations: int = 0
+    salt_hex: str = ""
+    derivation_method: int = -1
+    master_id: int = -1
 
 
 @dataclass
@@ -49,61 +36,80 @@ class WalletReport:
     path: str
     size: int = 0
     sha256: str = ""
+    format: str = "unknown"  # bdb | sqlite | unknown
     tags_found: dict[str, int] = field(default_factory=dict)
     mkeys: list[ExtractedBlob] = field(default_factory=list)
     ckeys: list[ExtractedBlob] = field(default_factory=list)
+    plain_keys: list[ExtractedBlob] = field(default_factory=list)
     pubkeys: list[str] = field(default_factory=list)
     names: list[str] = field(default_factory=list)
     versions: list[int] = field(default_factory=list)
+    hd_notes: list[str] = field(default_factory=list)
     other_notes: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    pieces: list[str] = field(default_factory=list)  # forensic timeline
 
     def summary_text(self) -> str:
         lines = [
-            f"=== wallet.dat forensic report ===",
+            "=== wallet.dat FORENSIC REPORT (piece-by-piece) ===",
             f"path: {self.path}",
             f"size: {self.size} bytes",
             f"sha256: {self.sha256}",
+            f"format: {self.format}",
             f"tags: {self.tags_found}",
-            f"mkey blobs: {len(self.mkeys)}",
-            f"ckey blobs: {len(self.ckeys)}",
-            f"pubkeys: {len(self.pubkeys)}",
-            f"address labels: {len(self.names)}",
-            f"version records: {self.versions}",
+            f"mkey: {len(self.mkeys)} | ckey: {len(self.ckeys)} | plain key: {len(self.plain_keys)} | pubs: {len(self.pubkeys)}",
+            f"versions: {self.versions}",
             "",
+            "--- dissection log ---",
         ]
+        lines.extend(self.pieces[:400])
+        if len(self.pieces) > 400:
+            lines.append(f"... ({len(self.pieces) - 400} more steps)")
+        lines.append("")
         if self.mkeys:
-            lines.append("--- mkey (96 hex for -mckey) ---")
+            lines.append("--- mkey blobs (96-hex for TrueMkey -mckey) ---")
             for i, b in enumerate(self.mkeys):
-                lines.append(f"[{i}] @{b.offset} {b.enc_hex}")
+                lines.append(f"[{i}] id={b.master_id} @{b.offset}")
+                lines.append(f"    enc:  {b.enc_hex}")
+                if b.salt_hex:
+                    lines.append(f"    salt: {b.salt_hex}")
+                if b.iterations:
+                    lines.append(f"    iterations: {b.iterations}  method: {b.derivation_method}")
                 if b.note:
                     lines.append(f"    note: {b.note}")
             lines.append("")
         if self.ckeys:
-            lines.append("--- ckey (ENC96 [PUBHEX]) ---")
+            lines.append("--- ckey blobs (ENC96 [PUB] for -ckeys) ---")
             for i, b in enumerate(self.ckeys):
                 if b.pubkey_hex:
                     lines.append(f"[{i}] {b.enc_hex} {b.pubkey_hex}")
                 else:
                     lines.append(f"[{i}] {b.enc_hex}")
             lines.append("")
+        if self.plain_keys:
+            lines.append("--- UNENCRYPTED key records (sensitive) ---")
+            for i, b in enumerate(self.plain_keys[:50]):
+                lines.append(f"[{i}] pub={b.pubkey_hex or '?'} note={b.note}")
+            lines.append("")
         if self.pubkeys:
-            lines.append("--- pubkeys ---")
-            for p in self.pubkeys[:200]:
+            lines.append(f"--- pubkeys ({len(self.pubkeys)}) ---")
+            for p in self.pubkeys[:100]:
                 lines.append(p)
-            if len(self.pubkeys) > 200:
-                lines.append(f"... ({len(self.pubkeys) - 200} more)")
+            if len(self.pubkeys) > 100:
+                lines.append(f"... +{len(self.pubkeys) - 100} more")
             lines.append("")
         if self.names:
-            lines.append("--- name labels (sample) ---")
-            for n in self.names[:50]:
+            lines.append("--- name / labels ---")
+            for n in self.names[:80]:
                 lines.append(n)
             lines.append("")
-        for e in self.errors:
-            lines.append(f"[!] {e}")
+        for n in self.hd_notes:
+            lines.append(f"[hd] {n}")
         for n in self.other_notes:
             lines.append(f"[i] {n}")
-        lines.append("=== end report ===")
+        for e in self.errors:
+            lines.append(f"[!] {e}")
+        lines.append("=== end forensic report ===")
         return "\n".join(lines)
 
 
@@ -111,55 +117,109 @@ def _hex(b: bytes) -> str:
     return b.hex()
 
 
+def _read_compact_size(data: bytes, off: int) -> tuple[int, int] | tuple[None, int]:
+    if off >= len(data):
+        return None, off
+    ch = data[off]
+    if ch < 253:
+        return ch, off + 1
+    if ch == 253 and off + 3 <= len(data):
+        return struct.unpack_from("<H", data, off + 1)[0], off + 3
+    if ch == 254 and off + 5 <= len(data):
+        return struct.unpack_from("<I", data, off + 1)[0], off + 5
+    if ch == 255 and off + 9 <= len(data):
+        return struct.unpack_from("<Q", data, off + 1)[0], off + 9
+    return None, off
+
+
+def _read_vector(data: bytes, off: int, max_len: int = 512) -> tuple[bytes | None, int]:
+    n, off2 = _read_compact_size(data, off)
+    if n is None or n > max_len or off2 + n > len(data):
+        return None, off
+    return data[off2 : off2 + n], off2 + n
+
+
+def _parse_cmaster_key(data: bytes, off: int) -> ExtractedBlob | None:
+    """Deserialize CMasterKey at offset; return blob if vchCryptedKey looks usable."""
+    start = off
+    crypted, off = _read_vector(data, off, 128)
+    if crypted is None:
+        return None
+    salt, off = _read_vector(data, off, 64)
+    if salt is None or off + 8 > len(data):
+        return None
+    method, iters = struct.unpack_from("<II", data, off)
+    off += 8
+    other, off2 = _read_vector(data, off, 64)
+    if other is None:
+        other = b""
+    note = f"CMasterKey parsed (+{off2 - start} bytes)"
+    enc = crypted
+    # TrueMkey wants 48-byte AES-CBC; take last 48 if longer, or pad-skip if 48
+    if len(enc) >= 48:
+        enc48 = enc[:48] if len(enc) == 48 else enc[-48:]
+        if len(enc) != 48:
+            note += f"; truncated/selected 48 of {len(enc)}"
+    elif len(enc) == 32:
+        # some dumps store raw; still export
+        enc48 = enc + bytes(16)
+        note += "; 32-byte crypted key padded for export"
+    else:
+        return None
+    return ExtractedBlob(
+        kind="mkey",
+        enc_hex=_hex(enc48),
+        offset=start,
+        note=note,
+        iterations=iters,
+        salt_hex=_hex(salt),
+        derivation_method=method,
+    )
+
+
 def _looks_pubkey(b: bytes) -> bool:
-    if len(b) == 33 and b[0] in (2, 3):
-        return True
-    if len(b) == 65 and b[0] == 4:
-        return True
-    return False
+    return (len(b) == 33 and b[0] in (2, 3)) or (len(b) == 65 and b[0] == 4)
 
 
-def _find_tag_counts(data: bytes) -> dict[str, int]:
+def _detect_format(data: bytes) -> str:
+    if data[:16].startswith(b"SQLite format 3"):
+        return "sqlite"
+    if b"mkey" in data or b"ckey" in data or b"\x00\x05\x31\x62" in data[:8192]:
+        return "bdb"
+    return "unknown"
+
+
+def _tag_counts(data: bytes) -> dict[str, int]:
+    tags = (
+        b"mkey", b"ckey", b"key", b"wkey", b"name", b"version", b"minversion",
+        b"bestblock", b"defaultkey", b"pool", b"hdchain", b"hdpubkey",
+        b"purpose", b"destdata", b"watchs", b"cscript", b"tx", b"flags",
+    )
     out: dict[str, int] = {}
-    for tag in TAG_STRINGS:
-        # BDB often stores key with 1-byte length prefix
-        pat = bytes([len(tag)]) + tag
-        c = data.count(pat)
-        if c == 0:
-            c = data.count(tag)
+    for t in tags:
+        c = data.count(bytes([len(t)]) + t)
+        if not c:
+            c = data.count(t)
         if c:
-            out[tag.decode("ascii", errors="ignore")] = c
+            out[t.decode()] = c
     return out
-
-
-def _extract_ascii_names(data: bytes) -> list[str]:
-    # name records often contain printable address/label strings
-    names: list[str] = []
-    for m in re.finditer(rb"name.{0,4}([\x20-\x7e]{6,80})", data):
-        s = m.group(1).decode("ascii", errors="ignore").strip()
-        if s and s not in names:
-            names.append(s)
-    return names[:500]
 
 
 def _extract_pubkeys(data: bytes) -> list[str]:
     pubs: list[str] = []
     seen: set[str] = set()
-    i = 0
-    n = len(data)
+    i, n = 0, len(data)
     while i < n - 33:
         b0 = data[i]
         if b0 in (2, 3):
-            cand = data[i : i + 33]
-            h = _hex(cand)
+            h = _hex(data[i : i + 33])
             if h not in seen:
                 seen.add(h)
                 pubs.append(h)
             i += 33
             continue
         if b0 == 4 and i + 65 <= n:
-            cand = data[i : i + 65]
-            h = _hex(cand)
+            h = _hex(data[i : i + 65])
             if h not in seen:
                 seen.add(h)
                 pubs.append(h)
@@ -169,57 +229,159 @@ def _extract_pubkeys(data: bytes) -> list[str]:
     return pubs
 
 
-def _nearby_pubkey(data: bytes, center: int, window: int = 128) -> str:
-    lo = max(0, center - window)
-    hi = min(len(data), center + window)
-    chunk = data[lo:hi]
-    for off in range(0, len(chunk) - 32):
-        if _looks_pubkey(chunk[off : off + 33]):
-            return _hex(chunk[off : off + 33])
-        if off + 65 <= len(chunk) and _looks_pubkey(chunk[off : off + 65]):
-            return _hex(chunk[off : off + 65])
-    return ""
-
-
-def _scan_encrypted_near_tags(data: bytes) -> tuple[list[ExtractedBlob], list[ExtractedBlob]]:
-    """Find 48-byte blobs near mkey/ckey tags (TrueMkey 96-hex format)."""
-    mkeys: list[ExtractedBlob] = []
-    ckeys: list[ExtractedBlob] = []
-    seen_enc: set[str] = set()
-
-    def consider(kind: str, off: int, blob: bytes) -> None:
-        if len(blob) != 48:
-            return
-        hx = _hex(blob)
-        if hx in seen_enc:
-            return
-        # skip low-entropy filler
-        if len(set(blob)) < 8:
-            return
-        seen_enc.add(hx)
-        pub = _nearby_pubkey(data, off) if kind == "ckey" else ""
-        rec = ExtractedBlob(kind=kind, enc_hex=hx, pubkey_hex=pub, offset=off)
-        if kind == "mkey":
-            mkeys.append(rec)
-        else:
-            ckeys.append(rec)
-
-    for tag, kind in ((b"mkey", "mkey"), (b"ckey", "ckey")):
-        start = 0
-        while True:
-            idx = data.find(tag, start)
-            if idx < 0:
-                break
-            # search forward for a 48-byte candidate in following 256 bytes
-            region = data[idx : idx + 300]
+def _parse_ckey_records(data: bytes, rep: WalletReport) -> None:
+    """Find length-prefixed 'ckey' + pubkey key, then 48-byte value."""
+    needle = b"\x04ckey"
+    start = 0
+    seen: set[str] = set()
+    while True:
+        idx = data.find(needle, start)
+        if idx < 0:
+            break
+        rep.pieces.append(f"@{idx}: tag ckey")
+        off = idx + len(needle)
+        # pubkey may be compact-size vector or raw 33/65
+        pub: bytes | None = None
+        vec, off2 = _read_vector(data, off, 65)
+        if vec and _looks_pubkey(vec):
+            pub = vec
+            off = off2
+            rep.pieces.append(f"@{idx}: ckey pubkey (vector) {_hex(pub)[:20]}…")
+        elif off + 33 <= len(data) and _looks_pubkey(data[off : off + 33]):
+            pub = data[off : off + 33]
+            off += 33
+            rep.pieces.append(f"@{idx}: ckey pubkey (raw33)")
+        elif off + 65 <= len(data) and _looks_pubkey(data[off : off + 65]):
+            pub = data[off : off + 65]
+            off += 65
+            rep.pieces.append(f"@{idx}: ckey pubkey (raw65)")
+        # scan nearby for 48-byte ciphertext (value often follows in page)
+        region = data[off : off + 200]
+        found = False
+        for rel in range(0, max(0, len(region) - 48)):
+            if region[rel] == 0x30:  # compact size 48
+                blob = region[rel + 1 : rel + 49]
+                if len(blob) == 48 and len(set(blob)) > 8:
+                    hx = _hex(blob)
+                    if hx not in seen:
+                        seen.add(hx)
+                        rep.ckeys.append(
+                            ExtractedBlob(
+                                kind="ckey",
+                                enc_hex=hx,
+                                pubkey_hex=_hex(pub) if pub else "",
+                                offset=off + rel + 1,
+                                note="ckey AES-CBC 48-byte secret",
+                            )
+                        )
+                        rep.pieces.append(f"@{off + rel + 1}: ckey enc48 extracted")
+                        found = True
+                        break
+            blob = region[rel : rel + 48]
+            if len(set(blob)) > 12 and rel + 48 <= len(region):
+                # weak heuristic fallback
+                pass
+        if not found and pub is not None:
+            # still record pubkey pairing opportunity
             for rel in range(0, max(0, len(region) - 48)):
-                # prefer length prefix 0x30 (48)
-                if region[rel] == 0x30 and rel + 1 + 48 <= len(region):
-                    consider(kind, idx + rel + 1, region[rel + 1 : rel + 1 + 48])
-                consider(kind, idx + rel, region[rel : rel + 48])
-            start = idx + 1
+                blob = region[rel : rel + 48]
+                if len(set(blob)) < 10:
+                    continue
+                hx = _hex(blob)
+                if hx in seen:
+                    continue
+                # prefer high entropy
+                if sum(blob) % 256 == 0 and len(set(blob)) < 16:
+                    continue
+                seen.add(hx)
+                rep.ckeys.append(
+                    ExtractedBlob(
+                        kind="ckey",
+                        enc_hex=hx,
+                        pubkey_hex=_hex(pub),
+                        offset=off + rel,
+                        note="ckey candidate (heuristic near pubkey)",
+                    )
+                )
+                rep.pieces.append(f"@{off + rel}: ckey candidate heuristic")
+                break
+        start = idx + 1
 
-    return mkeys, ckeys
+
+def _parse_mkey_records(data: bytes, rep: WalletReport) -> None:
+    needle = b"\x04mkey"
+    start = 0
+    seen: set[str] = set()
+    while True:
+        idx = data.find(needle, start)
+        if idx < 0:
+            break
+        rep.pieces.append(f"@{idx}: tag mkey")
+        off = idx + len(needle)
+        master_id = -1
+        if off + 4 <= len(data):
+            master_id = struct.unpack_from("<I", data, off)[0]
+            if 0 < master_id < 10000:
+                off += 4
+                rep.pieces.append(f"@{idx}: mkey nID={master_id}")
+            else:
+                master_id = -1
+        # try CMasterKey at several nearby offsets
+        parsed = None
+        for delta in range(0, 32):
+            parsed = _parse_cmaster_key(data, off + delta)
+            if parsed:
+                parsed.master_id = master_id
+                parsed.offset = off + delta
+                break
+        if parsed and parsed.enc_hex not in seen:
+            seen.add(parsed.enc_hex)
+            rep.mkeys.append(parsed)
+            rep.pieces.append(
+                f"@{parsed.offset}: CMasterKey enc48 iters={parsed.iterations} salt={parsed.salt_hex[:16]}…"
+            )
+        else:
+            # fallback 48-byte near tag
+            region = data[off : off + 256]
+            for rel in range(0, max(0, len(region) - 48)):
+                if region[rel] == 0x30:
+                    blob = region[rel + 1 : rel + 49]
+                    if len(blob) == 48 and len(set(blob)) > 8:
+                        hx = _hex(blob)
+                        if hx not in seen:
+                            seen.add(hx)
+                            rep.mkeys.append(
+                                ExtractedBlob(
+                                    kind="mkey",
+                                    enc_hex=hx,
+                                    offset=off + rel + 1,
+                                    master_id=master_id,
+                                    note="mkey 48-byte fallback (no full CMasterKey parse)",
+                                )
+                            )
+                            rep.pieces.append(f"@{off + rel + 1}: mkey enc48 fallback")
+                        break
+        start = idx + 1
+
+
+def _parse_names_versions(data: bytes, rep: WalletReport) -> None:
+    for m in re.finditer(rb"name.{0,6}([\x20-\x7e]{4,90})", data):
+        s = m.group(1).decode("ascii", errors="ignore").strip()
+        if s and s not in rep.names:
+            rep.names.append(s)
+            rep.pieces.append(f"@{m.start()}: name '{s[:60]}'")
+    for m in re.finditer(rb"\x07version", data):
+        off = m.end()
+        if off + 4 <= len(data):
+            v = struct.unpack_from("<I", data, off)[0]
+            if 1 <= v <= 200000 and v not in rep.versions:
+                rep.versions.append(v)
+                rep.pieces.append(f"@{off}: version={v}")
+    if b"hdchain" in data:
+        rep.hd_notes.append("hdchain record present (HD wallet)")
+        rep.pieces.append("hdchain tag present")
+    if b"\x04pool" in data or b"pool" in data:
+        rep.pieces.append("keypool records present")
 
 
 def inspect_wallet_dat(path: str | Path) -> WalletReport:
@@ -231,73 +393,75 @@ def inspect_wallet_dat(path: str | Path) -> WalletReport:
     data = p.read_bytes()
     rep.size = len(data)
     rep.sha256 = hashlib.sha256(data).hexdigest()
+    rep.pieces.append(f"loaded {rep.size} bytes sha256={rep.sha256[:16]}…")
     if rep.size < 64:
-        rep.errors.append("file too small to be wallet.dat")
+        rep.errors.append("file too small")
         return rep
 
-    # Bitcoin Core BDB magic-ish / page markers
-    if b"\x00\x05\x31\x62" in data[:8192] or b"wallet.dat" in data[:4096] or b"mkey" in data or b"ckey" in data:
-        rep.other_notes.append("Looks like a Bitcoin Core-style wallet.dat (BDB records detected).")
-    else:
-        rep.other_notes.append("No strong wallet.dat signature — still scanned for blobs.")
+    rep.format = _detect_format(data)
+    rep.pieces.append(f"format detect → {rep.format}")
+    if rep.format == "sqlite":
+        rep.other_notes.append(
+            "SQLite descriptor wallet — legacy mkey/ckey may be absent. "
+            "Use Bitcoin Core `sqlite3` / dumpwallet for descriptors."
+        )
+    rep.tags_found = _tag_counts(data)
+    rep.pieces.append(f"tag census → {rep.tags_found}")
 
-    rep.tags_found = _find_tag_counts(data)
-    rep.names = _extract_ascii_names(data)
+    _parse_mkey_records(data, rep)
+    _parse_ckey_records(data, rep)
+    _parse_names_versions(data, rep)
     rep.pubkeys = _extract_pubkeys(data)
-    rep.mkeys, rep.ckeys = _scan_encrypted_near_tags(data)
+    for b in rep.ckeys:
+        if b.pubkey_hex and b.pubkey_hex not in rep.pubkeys:
+            rep.pubkeys.insert(0, b.pubkey_hex)
 
-    # version ints near "version" tag
-    for m in re.finditer(rb"version", data):
-        off = m.end()
-        chunk = data[off : off + 16]
-        if len(chunk) >= 4:
-            # little-endian int common in BDB values
-            v = struct.unpack_from("<I", chunk, 0)[0]
-            if 1 <= v <= 100000 and v not in rep.versions:
-                rep.versions.append(v)
+    # plain "key" records (unencrypted) — flag only, do not dump priv hex into report by default
+    kn = data.count(b"\x03key")
+    if kn:
+        rep.plain_keys.append(
+            ExtractedBlob(kind="key", note=f"{kn} length-prefixed 'key' tags (possible unencrypted privs)")
+        )
+        rep.pieces.append(f"plain key tags ×{kn} (inspect offline; not auto-exported as WIF)")
 
     if not rep.mkeys and not rep.ckeys:
-        rep.other_notes.append(
-            "No 48-byte mkey/ckey blobs found near tags. "
-            "Wallet may be unencrypted, descriptor wallet (SQLite), or already empty."
-        )
+        rep.other_notes.append("No mkey/ckey AES blobs recovered — empty, unencrypted, or descriptor wallet.")
     if rep.ckeys and not any(c.pubkey_hex for c in rep.ckeys):
-        rep.other_notes.append(
-            "ckeys lack paired pubkeys — TrueMkey can still search AES, "
-            "but WIF post-hit needs pubkeys file."
-        )
+        rep.other_notes.append("ckeys without pubs — AES search OK; WIF post-hit needs pubkeys.")
+    rep.pieces.append(
+        f"done: mkey={len(rep.mkeys)} ckey={len(rep.ckeys)} pubs={len(rep.pubkeys)} names={len(rep.names)}"
+    )
     return rep
 
 
 def export_for_truemkey(report: WalletReport, out_dir: str | Path) -> dict[str, str]:
-    """Write mkeys.txt / ckeys.txt / pubkeys.txt for TrueMkeyCollider. Returns paths."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    paths: dict[str, str] = {}
-
     mkey_path = out / "mkeys_from_wallet.txt"
     ckey_path = out / "ckeys_from_wallet.txt"
     pub_path = out / "pubkeys_from_wallet.txt"
     report_path = out / "wallet_forensic_report.txt"
+    meta_path = out / "mkey_meta.txt"
 
     mkey_path.write_text("\n".join(b.enc_hex for b in report.mkeys) + ("\n" if report.mkeys else ""), encoding="utf-8")
     c_lines = []
     for b in report.ckeys:
-        if b.pubkey_hex:
-            c_lines.append(f"{b.enc_hex} {b.pubkey_hex}")
-        else:
-            c_lines.append(b.enc_hex)
+        c_lines.append(f"{b.enc_hex} {b.pubkey_hex}".rstrip())
     ckey_path.write_text("\n".join(c_lines) + ("\n" if c_lines else ""), encoding="utf-8")
-
-    pubs = list(report.pubkeys)
-    for b in report.ckeys:
-        if b.pubkey_hex and b.pubkey_hex not in pubs:
-            pubs.insert(0, b.pubkey_hex)
+    pubs = list(dict.fromkeys(report.pubkeys))
     pub_path.write_text("\n".join(pubs) + ("\n" if pubs else ""), encoding="utf-8")
     report_path.write_text(report.summary_text(), encoding="utf-8")
-
-    paths["mkeys"] = str(mkey_path)
-    paths["ckeys"] = str(ckey_path)
-    paths["pubkeys"] = str(pub_path)
-    paths["report"] = str(report_path)
-    return paths
+    meta_lines = []
+    for b in report.mkeys:
+        meta_lines.append(
+            f"id={b.master_id} iters={b.iterations} method={b.derivation_method} "
+            f"salt={b.salt_hex} enc={b.enc_hex}"
+        )
+    meta_path.write_text("\n".join(meta_lines) + ("\n" if meta_lines else ""), encoding="utf-8")
+    return {
+        "mkeys": str(mkey_path),
+        "ckeys": str(ckey_path),
+        "pubkeys": str(pub_path),
+        "report": str(report_path),
+        "meta": str(meta_path),
+    }

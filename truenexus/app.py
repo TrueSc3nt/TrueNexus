@@ -251,6 +251,7 @@ class TrueNexusApp(ctk.CTk):
             "Research 2026",
             "TrueMkey",
             "Wallet Lab",
+            "Collider Lab",
             "Tools Arsenal",
             "Chain RPCs",
             "Address Watch",
@@ -323,6 +324,7 @@ class TrueNexusApp(ctk.CTk):
         self._build_idea_labs()  # Passphrase, PathNova, Kangaroo, Shadow160, …
         self._build_mkey()
         self._build_wallet_lab()
+        self._build_collider_lab()
         self._build_tools_arsenal()
         self._build_chain_rpcs()
         self._build_watch()
@@ -1936,6 +1938,94 @@ class TrueNexusApp(ctk.CTk):
             "mkey / ckey / pubkey files prefilling TrueMkey tab.\n"
             "Open TrueMkey, review Preview, then Launch.",
         )
+
+    # ── Collider Lab (pp717 Collider.exe + TrueCollider bridge) ─────────
+    def _build_collider_lab(self) -> None:
+        tab = self.tabs.tab("Collider Lab")
+        f = self._scroll(tab)
+        f.pack(fill="both", expand=True)
+        self._section(f, "Collider-bsgs Lab — native Collider.exe + TrueCollider bridge")
+        self._label(
+            f,
+            "Bundled from github.com/pp717/Collider-bsgs. Run the original CUDA Collider,\n"
+            "or map --pb/--pk/--pke/--infile into TrueCollider BSGS (same puzzles).",
+            text_color=self.theme["muted"],
+        ).pack(anchor="w")
+        tools = Path(__file__).resolve().parents[1] / "tools" / "Collider-bsgs"
+        default_exe = str(tools / "Collider.exe") if (tools / "Collider.exe").is_file() else ""
+        self.col_exe = ctk.StringVar(value=default_exe)
+        self._path_row(f, "Collider.exe", self.col_exe, exe=True)
+        g = ctk.CTkFrame(f, fg_color="transparent")
+        g.pack(fill="x")
+        self.col_pb = self._entry(g, "Pubkey -pb / --pb", "", 0, 0)
+        self.col_pk = self._entry(g, "Range start -pk", "", 0, 1)
+        self.col_pke = self._entry(g, "Range end -pke", "", 1, 0)
+        self.col_infile = self._entry(g, "Infile", "", 1, 1)
+        self.col_w = self._entry(g, "Baby -w / --baby-bits", "22", 2, 0)
+        self.col_htsz = self._entry(g, "HashTable -htsz", "26", 2, 1)
+        self.col_dev = self._entry(g, "GPU -d", "0", 3, 0)
+        self.col_engine = self._dropdown(
+            g, "Engine",
+            ["Collider.exe (original)", "TrueCollider bridge (keyhunt)"],
+            "TrueCollider bridge (keyhunt)", 3, 1,
+        )
+        self.col_preview = ctk.CTkTextbox(f, height=100, font=ctk.CTkFont(family="Consolas", size=13))
+        self.col_preview.pack(fill="x", pady=6)
+        row = ctk.CTkFrame(f, fg_color="transparent")
+        row.pack(fill="x")
+        ctk.CTkButton(row, text="Preview", command=self._collider_preview).pack(side="left", padx=4)
+        ctk.CTkButton(row, text="Launch", fg_color=self.theme["accent"], text_color="#111",
+                      command=self._collider_launch).pack(side="left", padx=4)
+        ctk.CTkButton(row, text="Copy", command=lambda: self._copy_text(self.col_preview.get("1.0", "end"))).pack(side="left", padx=4)
+
+    def _collider_preview(self) -> None:
+        eng = self.col_engine.get() if hasattr(self, "col_engine") else ""
+        pb = self.col_pb.get().strip()
+        pk = self.col_pk.get().strip()
+        pke = self.col_pke.get().strip()
+        infile = self.col_infile.get().strip()
+        w = self.col_w.get().strip() or "22"
+        htsz = self.col_htsz.get().strip() or "26"
+        dev = self.col_dev.get().strip() or "0"
+        if "TrueCollider" in eng:
+            exe = self.settings.get("truecollider_cuda") or self.settings.get("truecollider_exe") or "keyhunt_cuda.exe"
+            parts = [f'"{exe}"', "-m", "bsgs", "-U", "cuda", "-B", "random"]
+            if pb:
+                parts += ["--pb", pb]
+            if infile:
+                parts += ["--infile", f'"{infile}"']
+            if pk:
+                parts += ["--pk", pk]
+            if pke:
+                parts += ["--pke", pke]
+            parts += ["--baby-bits", w, "--htsz", htsz, "-t", "4"]
+            cmd = " ".join(parts)
+        else:
+            exe = self.col_exe.get().strip() or "Collider.exe"
+            parts = [f'"{exe}"', "-d", dev, "-w", w, "-htsz", htsz]
+            if pb:
+                parts += ["-pb", pb]
+            if infile:
+                parts += ["-infile", f'"{infile}"']
+            if pk:
+                parts += ["-pk", pk]
+            if pke:
+                parts += ["-pke", pke]
+            cmd = " ".join(parts)
+        self.col_preview.delete("1.0", "end")
+        self.col_preview.insert("1.0", cmd)
+
+    def _collider_launch(self) -> None:
+        self._collider_preview()
+        cmd = self.col_preview.get("1.0", "end").strip()
+        eng = self.col_engine.get() if hasattr(self, "col_engine") else ""
+        if "TrueCollider" in eng:
+            exe = self.settings.get("truecollider_cuda") or self.settings.get("truecollider_exe") or ""
+            cwd = str(Path(exe).parent) if exe else None
+        else:
+            cwd = str(Path(self.col_exe.get()).parent) if self.col_exe.get() else None
+        self.runner.start(cmd, cwd=cwd)
+        self._set_status("Collider Lab launched")
 
     # ── Tools Arsenal (100+ registry) ───────────────────────────────────
     def _build_tools_arsenal(self) -> None:
