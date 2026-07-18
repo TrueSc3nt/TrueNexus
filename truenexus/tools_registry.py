@@ -90,7 +90,7 @@ TOOLS: list[Tool] = [
     {"id": "wallet-lab", "name": "Wallet Lab forensic GUI", "kind": "wallet", "status": "live", "cli": "Wallet Lab"},
     {"id": "gpu-mnemonic", "name": "GPU mnemonic EC batch", "kind": "mnemonic", "status": "live",
      "cli": "-m mnemonic -U cuda --path-pack …", "note": "Host PBKDF2 + GPU secp/hash160 for P2PKH/P2WPKH packs", "gpu": True},
-    {"id": "vanbit-style", "name": "VanBitCracken-style vanity GPU", "kind": "recipe", "status": "recipe",
+    {"id": "vanbit-style", "name": "VanBitCracken-style vanity GPU", "kind": "recipe", "status": "live",
      "cli": "-m vanity -U cuda", "gpu": True},
     # ── Mnemonic / passphrase ───────────────────────────────────────────
     {"id": "mn-mask", "name": "Mnemonic mask", "kind": "mnemonic", "status": "live", "cli": "-R mask --seed"},
@@ -105,7 +105,7 @@ TOOLS: list[Tool] = [
     {"id": "mn-mixed", "name": "Mixed-script normalize", "kind": "mnemonic", "status": "live", "cli": "-R mixed-script"},
     {"id": "mn-prism", "name": "ChecksumPrism multi-lang", "kind": "mnemonic", "status": "live", "cli": "-R checksum-prism --prism"},
     {"id": "mn-electrum-v2", "name": "Electrum v2 seed", "kind": "mnemonic", "status": "live", "cli": "-R electrum-v2"},
-    {"id": "mn-electrum-v1", "name": "Electrum v1 seed", "kind": "mnemonic", "status": "partial", "cli": "-R electrum-v1"},
+    {"id": "mn-electrum-v1", "name": "Electrum v1 seed", "kind": "mnemonic", "status": "live", "cli": "-R electrum-v1"},
     {"id": "mn-bip85", "name": "BIP85 child mnemonics", "kind": "mnemonic", "status": "live", "cli": "-R bip85 --seed"},
     {"id": "mn-rfc1751", "name": "RFC1751 words", "kind": "mnemonic", "status": "live", "cli": "-R rfc1751"},
     {"id": "mn-milksad", "name": "MilkSad mnemonic", "kind": "mnemonic", "status": "live", "cli": "-R milksad --milksad-from"},
@@ -137,7 +137,7 @@ TOOLS: list[Tool] = [
     {"id": "wr-wifmask", "name": "WIF mask", "kind": "weakrng", "status": "live", "cli": "-R wif-mask --wif-mask"},
     # ── Filters / dual / funded ─────────────────────────────────────────
     {"id": "f-cascade", "name": "FuseCascade filter", "kind": "filter", "status": "live", "cli": "-F cascade"},
-    {"id": "f-fuse16", "name": "Fuse16 filter", "kind": "filter", "status": "partial", "cli": "-F fuse16"},
+    {"id": "f-fuse16", "name": "Fuse16 filter", "kind": "filter", "status": "live", "cli": "-F fuse16"},
     {"id": "f-bloom", "name": "Bloom classic", "kind": "filter", "status": "live", "cli": "-F bloom"},
     {"id": "f-dual", "name": "DualTarget BTC+ETH", "kind": "filter", "status": "live", "cli": "--dual-target"},
     {"id": "f-funded", "name": "Funded hash160 filter", "kind": "filter", "status": "live", "cli": "--funded"},
@@ -155,15 +155,15 @@ TOOLS: list[Tool] = [
     {"id": "rpc-main", "name": "Main-coin RPC pack", "kind": "rpc", "status": "live", "cli": "tools/chains/main_coins.json"},
     {"id": "node-balance", "name": "Node balance check (-N)", "kind": "rpc", "status": "live", "cli": "-N http://…"},
     # ── Puzzle recipes ──────────────────────────────────────────────────
-    {"id": "pz-72", "name": "Puzzle #72 recipe", "kind": "recipe", "status": "recipe", "cli": "Puzzles tab #72", "gpu": True},
-    {"id": "pz-125", "name": "Puzzle #125 recipe", "kind": "recipe", "status": "recipe", "cli": "Puzzles tab #125", "gpu": True},
-    {"id": "pz-130", "name": "Puzzle #130 recipe", "kind": "recipe", "status": "recipe", "cli": "Puzzles tab #130", "gpu": True},
-    {"id": "pz-135", "name": "Puzzle #135 recipe", "kind": "recipe", "status": "recipe", "cli": "Puzzles tab #135", "gpu": True},
-    {"id": "pz-140", "name": "Puzzle #140 recipe", "kind": "recipe", "status": "recipe", "cli": "Puzzles tab #140", "gpu": True},
-    {"id": "pz-145", "name": "Puzzle #145 recipe", "kind": "recipe", "status": "recipe", "cli": "Puzzles tab #145", "gpu": True},
-    {"id": "pz-150", "name": "Puzzle #150 recipe", "kind": "recipe", "status": "recipe", "cli": "Puzzles tab #150", "gpu": True},
-    {"id": "pz-155", "name": "Puzzle #155 recipe", "kind": "recipe", "status": "recipe", "cli": "Puzzles tab #155", "gpu": True},
-    {"id": "pz-160", "name": "Puzzle #160 recipe", "kind": "recipe", "status": "recipe", "cli": "Puzzles tab #160", "gpu": True},
+    {"id": "pz-72", "name": "Puzzle #72 recipe", "kind": "recipe", "status": "live", "cli": "Puzzles tab #72", "gpu": True},
+    {"id": "pz-125", "name": "Puzzle #125 recipe", "kind": "recipe", "status": "live", "cli": "Puzzles tab #125", "gpu": True},
+    {"id": "pz-130", "name": "Puzzle #130 recipe", "kind": "recipe", "status": "live", "cli": "Puzzles tab #130", "gpu": True},
+    {"id": "pz-135", "name": "Puzzle #135 recipe", "kind": "recipe", "status": "live", "cli": "Puzzles tab #135", "gpu": True},
+    {"id": "pz-140", "name": "Puzzle #140 recipe", "kind": "recipe", "status": "live", "cli": "Puzzles tab #140", "gpu": True},
+    {"id": "pz-145", "name": "Puzzle #145 recipe", "kind": "recipe", "status": "live", "cli": "Puzzles tab #145", "gpu": True},
+    {"id": "pz-150", "name": "Puzzle #150 recipe", "kind": "recipe", "status": "live", "cli": "Puzzles tab #150", "gpu": True},
+    {"id": "pz-155", "name": "Puzzle #155 recipe", "kind": "recipe", "status": "live", "cli": "Puzzles tab #155", "gpu": True},
+    {"id": "pz-160", "name": "Puzzle #160 recipe", "kind": "recipe", "status": "live", "cli": "Puzzles tab #160", "gpu": True},
     # ── Labs / watch ────────────────────────────────────────────────────
     {"id": "lab-pass", "name": "Passphrase Lab", "kind": "lab", "status": "live"},
     {"id": "lab-path", "name": "PathNova Lab", "kind": "lab", "status": "live"},
@@ -211,6 +211,27 @@ for _acct in (0, 1, 2, 3, 5, 10, 15, 20):
         "status": "live",
         "cli": f"--account-max {_acct} --path-pack multicoin",
     })
+
+TOOLS.extend([
+    {"id": "mn-slip39", "name": "SLIP39 share recovery", "kind": "mnemonic", "status": "live", "cli": "-R slip39 --slip39-file"},
+    {"id": "mn-aezeed", "name": "aezeed Lightning recovery", "kind": "mnemonic", "status": "live", "cli": "-R aezeed --aezeed"},
+    {"id": "mn-sol-bip39", "name": "Solana BIP39 SLIP-0010", "kind": "mnemonic", "status": "live", "cli": "-R solana-bip39 -c sol"},
+    {"id": "tc-create-account-seed", "name": "CreateAccountWithSeed", "kind": "collider", "status": "live", "cli": "-m CreateAccountWithSeed -c sol"},
+    {"id": "tc-wif-mode", "name": "WIF-mask mode", "kind": "collider", "status": "live", "cli": "-m wif-mask"},
+    {"id": "tc-hex-mode", "name": "Hex-mask mode", "kind": "collider", "status": "live", "cli": "-m hex-mask"},
+    {"id": "tc-kangaroo-mod", "name": "Kangaroo-mod residue", "kind": "bsgs", "status": "live", "cli": "-m kangaroo-mod --mod-step"},
+    {"id": "f-prefix-n", "name": "prefix-N hash160", "kind": "filter", "status": "live", "cli": "--prefix-n"},
+    {"id": "f-fuse16-live", "name": "Fuse16 filter backend", "kind": "filter", "status": "live", "cli": "-F fuse16"},
+    {"id": "ops-jsonl", "name": "JSONL FOUND hits", "kind": "lab", "status": "live", "cli": "--jsonl"},
+    {"id": "ops-checkpoint", "name": "Checkpoint resume", "kind": "lab", "status": "live", "cli": "--checkpoint"},
+    {"id": "ops-dryrun-eta", "name": "Dry-run honesty ETA", "kind": "lab", "status": "live", "cli": "-y / --dry-run"},
+    {"id": "ops-vanity-regex", "name": "Vanity regex/glob", "kind": "collider", "status": "live", "cli": "--vanity-regex"},
+    {"id": "cuda-pbkdf2", "name": "CUDA BIP39 PBKDF2", "kind": "mnemonic", "status": "live", "cli": "-U cuda PBKDF2 batch", "gpu": True},
+    {"id": "b-auto-k-eta", "name": "BSGS auto-k ETA", "kind": "bsgs", "status": "live", "cli": "-k auto"},
+    {"id": "path-multisig", "name": "Multisig cosigner paths", "kind": "path", "status": "live", "cli": "--xpub"},
+    {"id": "ops-job-queue", "name": "Job queue / farm dashboard", "kind": "lab", "status": "live", "cli": "Ops Lab"},
+    {"id": "ops-cli-translate", "name": "Competitor CLI → recipe", "kind": "lab", "status": "live", "cli": "Ops Lab translator"},
+])
 
 
 def all_tools() -> list[Tool]:

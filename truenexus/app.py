@@ -252,6 +252,7 @@ class TrueNexusApp(ctk.CTk):
             "TrueMkey",
             "Wallet Lab",
             "Collider Lab",
+            "Ops Lab",
             "Tools Arsenal",
             "Chain RPCs",
             "Address Watch",
@@ -325,6 +326,7 @@ class TrueNexusApp(ctk.CTk):
         self._build_mkey()
         self._build_wallet_lab()
         self._build_collider_lab()
+        self._build_ops_lab()
         self._build_tools_arsenal()
         self._build_chain_rpcs()
         self._build_watch()
@@ -2066,6 +2068,103 @@ class TrueNexusApp(ctk.CTk):
             cwd = str(Path(self.col_exe.get()).parent) if self.col_exe.get() else None
         self.runner.start(cmd, cwd=cwd)
         self._set_status("Collider Lab launched")
+
+    # ── Ops Lab (job queue + competitor CLI translator) ─────────────────
+    def _build_ops_lab(self) -> None:
+        tab = self.tabs.tab("Ops Lab")
+        f = self._scroll(tab)
+        f.pack(fill="both", expand=True)
+        self._section(f, "Ops Lab — job queue / farm + CLI translator")
+        self._label(
+            f,
+            "Queue dry-run then launch. Translate RCKangaroo / Collider / BitCrack flags → TrueCollider.",
+            text_color=self.theme["muted"],
+        ).pack(anchor="w")
+        g = ctk.CTkFrame(f, fg_color="transparent")
+        g.pack(fill="x")
+        self.ops_queue = ctk.CTkTextbox(g, height=140, font=ctk.CTkFont(family="Consolas", size=12))
+        self.ops_queue.pack(fill="x", pady=4)
+        self.ops_queue.insert("1.0", "# one command per line; Preview queues with -y dry-run first\n")
+        row = ctk.CTkFrame(f, fg_color="transparent")
+        row.pack(fill="x")
+        ctk.CTkButton(row, text="Dry-run all", command=self._ops_dryrun_all).pack(side="left", padx=4)
+        ctk.CTkButton(row, text="Launch next", fg_color=self.theme["accent"], text_color="#111",
+                      command=self._ops_launch_next).pack(side="left", padx=4)
+        self._section(f, "Competitor CLI → TrueCollider recipe")
+        self.ops_foreign = self._entry(f, "Paste foreign CLI", "", 0, 0) if False else None
+        self.ops_foreign_box = ctk.CTkTextbox(f, height=80, font=ctk.CTkFont(family="Consolas", size=12))
+        self.ops_foreign_box.pack(fill="x", pady=4)
+        self.ops_translated = ctk.CTkTextbox(f, height=80, font=ctk.CTkFont(family="Consolas", size=12))
+        self.ops_translated.pack(fill="x", pady=4)
+        ctk.CTkButton(f, text="Translate", command=self._ops_translate).pack(anchor="w", pady=4)
+
+    def _ops_dryrun_all(self) -> None:
+        lines = [ln.strip() for ln in self.ops_queue.get("1.0", "end").splitlines()
+                 if ln.strip() and not ln.strip().startswith("#")]
+        for ln in lines:
+            cmd = ln if " -y" in f" {ln} " or ln.endswith(" -y") else f"{ln} -y"
+            self.runner.start(cmd)
+            self._set_status(f"Ops dry-run: {cmd[:80]}")
+            break  # one at a time in console
+        if not lines:
+            messagebox.showinfo("Ops Lab", "Queue is empty.")
+
+    def _ops_launch_next(self) -> None:
+        lines = [ln.strip() for ln in self.ops_queue.get("1.0", "end").splitlines()
+                 if ln.strip() and not ln.strip().startswith("#")]
+        if not lines:
+            messagebox.showinfo("Ops Lab", "Queue is empty.")
+            return
+        cmd = lines[0]
+        # rewrite queue without first line
+        rest = "\n".join(lines[1:])
+        self.ops_queue.delete("1.0", "end")
+        self.ops_queue.insert("1.0", rest + ("\n" if rest else ""))
+        self.runner.start(cmd)
+        self._set_status("Ops launched next job")
+
+    def _ops_translate(self) -> None:
+        raw = self.ops_foreign_box.get("1.0", "end").strip()
+        parts = raw.replace("=", " ").split()
+        out = ['"keyhunt_cuda.exe"', "-m", "bsgs", "-U", "cuda", "-B", "random"]
+        i = 0
+        while i < len(parts):
+            a = parts[i]
+            def nxt() -> str:
+                nonlocal i
+                i += 1
+                return parts[i] if i < len(parts) else ""
+            if a in ("-pb", "--pb") and i + 1 < len(parts):
+                out += ["--pb", nxt()]; i += 1; continue
+            if a in ("-pk", "--pk") and i + 1 < len(parts):
+                out += ["--pk", nxt()]; i += 1; continue
+            if a in ("-pke", "--pke") and i + 1 < len(parts):
+                out += ["--pke", nxt()]; i += 1; continue
+            if a in ("-infile", "--infile", "-f") and i + 1 < len(parts):
+                out += ["--infile", nxt()]; i += 1; continue
+            if a in ("-w",) and i + 1 < len(parts):
+                out += ["--baby-bits", nxt()]; i += 1; continue
+            if a in ("-htsz", "--htsz") and i + 1 < len(parts):
+                out += ["--htsz", nxt()]; i += 1; continue
+            if a in ("-r",) and i + 1 < len(parts):
+                # Collider random bits OR keyhunt range — if looks like bits, map mode random
+                v = nxt(); i += 1
+                if v.isdigit() and int(v) < 256:
+                    out += ["--mode", "random"]
+                else:
+                    out += ["-r", v]
+                continue
+            if a in ("-d",) and i + 1 < len(parts):
+                nxt(); i += 1
+                continue
+            if a.lower() in ("rckangaroo", "kangaroo.exe", "bitcrack"):
+                out[out.index("-m") + 1] = "kangaroo"
+                i += 1
+                continue
+            i += 1
+        cmd = " ".join(out)
+        self.ops_translated.delete("1.0", "end")
+        self.ops_translated.insert("1.0", cmd)
 
     # ── Tools Arsenal (100+ registry) ───────────────────────────────────
     def _build_tools_arsenal(self) -> None:
